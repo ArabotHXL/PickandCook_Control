@@ -16,6 +16,9 @@ import {
   Play,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ExternalHealthCard } from "@/components/ExternalHealthCard";
+import { AlertWebhookCard } from "@/components/AlertWebhookCard";
+import { TwoFactorCard } from "@/components/TwoFactorCard";
 
 type Job = Record<string, unknown> | null;
 
@@ -115,7 +118,7 @@ function JobRow({ job }: { job: Record<string, unknown> }) {
 }
 
 export function SystemPage() {
-  const [tab, setTab] = useState<"health" | "jobs" | "flags">("health");
+  const [tab, setTab] = useState<"health" | "jobs" | "flags" | "security">("health");
   const [jobName, setJobName] = useState("");
   const [jobStatus, setJobStatus] = useState("");
   const [page, setPage] = useState(1);
@@ -196,12 +199,13 @@ export function SystemPage() {
 
       <div className="p-6 space-y-4">
         <div className="flex gap-1 border-b border-border">
-          {(["health", "jobs", "flags"] as const).map((t) => (
+          {(["health", "jobs", "flags", "security"] as const).map((t) => (
             <button key={t} onClick={() => setTab(t)}
+              data-testid={`tab-system-${t}`}
               className={cn("px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors",
                 tab === t ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
               )}>
-              {t === "health" ? "Overview" : t === "jobs" ? "All Job Runs" : "Feature Flags"}
+              {t === "health" ? "Overview" : t === "jobs" ? "All Job Runs" : t === "flags" ? "Feature Flags" : "Security"}
             </button>
           ))}
         </div>
@@ -278,6 +282,8 @@ export function SystemPage() {
               <StatCard label="LLM Cost Today" value={`$${(health?.llmCostToday ?? 0).toFixed(4)}`} icon={<DollarSign className="w-4 h-4" />} />
               <StatCard label="LLM Cost (7d)" value={`$${(health?.llmCostThisWeek ?? 0).toFixed(2)}`} icon={<DollarSign className="w-4 h-4" />} />
             </div>
+
+            <ExternalHealthCard />
 
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
               <div className="bg-card border border-card-border rounded-lg p-5 shadow-sm">
@@ -411,6 +417,13 @@ export function SystemPage() {
               </div>
             )}
           </>
+        )}
+
+        {tab === "security" && (
+          <div className="space-y-4">
+            <AlertWebhookCard flagsData={flagsQuery.data} flagsLoading={flagsQuery.isLoading} />
+            <TwoFactorCard />
+          </div>
         )}
 
         {tab === "flags" && (

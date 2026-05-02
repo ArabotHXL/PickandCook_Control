@@ -1,5 +1,6 @@
 import { query, queryOne } from "../routes/ops/db.js";
 import { logger } from "../lib/logger.js";
+import { sendAlert } from "../lib/alerts.js";
 
 export type JobSummary = Record<string, unknown>;
 
@@ -98,6 +99,16 @@ export async function runJob(
     const msg = err instanceof Error ? err.message : String(err);
     childLog.error({ err }, "[worker] failed");
     await failJob(jobRunId, err);
+    // Fire-and-forget alert. sendAlert never throws.
+    sendAlert({
+      severity: "error",
+      title: `Job failed: ${jobName}`,
+      body: msg.slice(0, 500),
+      fields: [
+        { label: "Triggered by", value: triggeredBy },
+        { label: "Run id", value: jobRunId },
+      ],
+    }).catch(() => undefined);
     return { jobRunId, error: msg };
   }
 }

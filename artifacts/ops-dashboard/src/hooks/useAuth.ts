@@ -7,7 +7,13 @@ export interface AdminUser {
   email: string;
   username: string;
   role: string;
+  totpEnabled?: boolean;
 }
+
+/** Result of `login()`: either a complete session, or a challenge requiring TOTP. */
+export type LoginResult =
+  | { kind: "session"; user: AdminUser }
+  | { kind: "totp_required"; challengeToken: string };
 
 export function useAuth() {
   const [user, setUser] = useState<AdminUser | null>(null);
@@ -35,7 +41,7 @@ export function useAuth() {
 
   useEffect(() => { fetchMe(); }, [fetchMe]);
 
-  const login = useCallback(async (email: string, password: string) => {
+  const login = useCallback(async (email: string, password: string): Promise<LoginResult> => {
     const res = await apiFetch("/api/ops/auth/login", {
       method: "POST",
       body: JSON.stringify({ email, password }),
@@ -43,6 +49,24 @@ export function useAuth() {
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.error ?? "Login failed");
+    }
+    const data = await res.json();
+    if (data.needsTotp && data.challengeToken) {
+      return { kind: "totp_required", challengeToken: data.challengeToken };
+    }
+    setToken(data.token);
+    setUser(data.user);
+    return { kind: "session", user: data.user };
+  }, []);
+
+  const verifyTotpLogin = useCallback(async (challengeToken: string, code: string): Promise<AdminUser> => {
+    const res = await apiFetch("/api/ops/auth/2fa/verify-login", {
+      method: "POST",
+      body: JSON.stringify({ challengeToken, code }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error ?? "TOTP verification failed");
     }
     const data = await res.json();
     setToken(data.token);
@@ -55,5 +79,5 @@ export function useAuth() {
     setUser(null);
   }, []);
 
-  return { user, loading, login, logout };
+  return { user, loading, login, logout, verifyTotpLogin };
 }

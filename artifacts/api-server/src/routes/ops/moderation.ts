@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import { query } from "./db.js";
+import { query, withTransaction } from "./db.js";
 import { writeAuditLog } from "./audit.js";
 import type { AdminPayload } from "./auth.js";
 import { buildOrderBy } from "./csv.js";
@@ -83,6 +83,70 @@ export async function listModeration(req: Request, res: Response): Promise<void>
     total: parseInt(countRows[0]?.n ?? "0", 10),
     page,
     limit,
+  });
+}
+
+export async function bulkDecideModeration(req: Request, res: Response): Promise<void> {
+  // Accept both `ids` (preferred, used by dashboard) and `reportIds` (legacy).
+  const body = req.body ?? {};
+  const ids: unknown = Array.isArray(body.ids) ? body.ids : body.reportIds;
+  const { decision, note } = body;
+  const admin = getAdminUser(req);
+
+  const allowed = ["approved", "rejected", "needs_more_info", "escalated"];
+  if (!allowed.includes(decision)) {
+    res.status(400).json({ error: "Invalid decision" });
+    return;
+  }
+  if (!Array.isArray(ids) || ids.length === 0) {
+    res.status(400).json({ error: "ids (array) required" });
+    return;
+  }
+  if (ids.length > 100) {
+    res.status(400).json({ error: "Max 100 reports per bulk action" });
+    return;
+  }
+  if (!ids.every((id) => typeof id === "string")) {
+    res.status(400).json({ error: "ids must be an array of strings" });
+    return;
+  }
+
+  // Only flip rows still in `pending`. Already-decided rows are skipped so we
+  // don't silently overwrite a finalized decision.
+  const updated = await withTransaction(async (tx) => {
+    return tx.query<{ id: string; old_status: string }>(
+      `WITH old AS (
+         SELECT id, status FROM abuse_reports
+          WHERE id::text = ANY($1::text[]) AND status = 'pending'
+          FOR UPDATE
+       )
+       UPDATE abuse_reports ar
+          SET status = $2, updated_at = NOW()
+         FROM old
+        WHERE ar.id = old.id
+       RETURNING ar.id, old.status AS old_status`,
+      [ids as string[], decision]
+    );
+  });
+
+  // Per-row audit so each id is independently searchable.
+  for (const u of updated) {
+    await writeAuditLog({
+      adminUserId: admin.userId,
+      actionType: `moderation_bulk_${decision}`,
+      targetType: "abuse_report",
+      targetId: u.id,
+      oldValue: { status: u.old_status },
+      newValue: { status: decision, batchSize: updated.length },
+      decisionNote: note,
+    });
+  }
+
+  res.json({
+    ok: true,
+    updated: updated.length,
+    requested: ids.length,
+    skipped: ids.length - updated.length,
   });
 }
 

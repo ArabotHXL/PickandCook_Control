@@ -39,3 +39,61 @@ export async function ensureJobSchema(): Promise<void> {
     );
   }
 }
+
+/**
+ * Schema bootstrap for the ops dashboard's staging-promotion + alerting
+ * features. Adds:
+ *  - `imported_recipes_staging.promoted_recipe_id` so we can trace which
+ *    `recipes.id` a staging row produced after promotion (and prevent
+ *    double-promotion via a unique constraint).
+ *  - `system_flags` row for `alert_webhook_url` (idempotent insert).
+ *  - `user_role` enum extension for `read_only_admin` if the column is
+ *    text-typed (most installs are) we just rely on application-level
+ *    validation; nothing to add here.
+ *  - `user_totp` table for admin 2FA opt-in.
+ *
+ * Safe to call repeatedly. Each statement is `IF NOT EXISTS` or upsert.
+ */
+export async function ensureOpsSchema(): Promise<void> {
+  // Staging → Recipes traceability
+  await query(
+    `ALTER TABLE imported_recipes_staging
+       ADD COLUMN IF NOT EXISTS promoted_recipe_id varchar`
+  );
+  await query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS imported_recipes_staging_promoted_unique
+       ON imported_recipes_staging (promoted_recipe_id)
+       WHERE promoted_recipe_id IS NOT NULL`
+  );
+
+  // Admin TOTP 2FA (opt-in per admin)
+  await query(
+    `CREATE TABLE IF NOT EXISTS admin_totp (
+       user_id varchar PRIMARY KEY,
+       secret text NOT NULL,
+       enabled_at timestamp,
+       last_verified_at timestamp,
+       created_at timestamp NOT NULL DEFAULT NOW()
+     )`
+  );
+
+  // Generic outbound alert webhook config (Slack-compatible POST). Stored as
+  // a `flags` key under the existing `system_flags` row with id='system' so
+  // it's editable from the existing flags UI without a schema change.
+  // Schema is `system_flags(id text PK, flags jsonb, updated_at, updated_by)`.
+  // We seed defaults only if the system scope doesn't have the keys yet.
+  await query(
+    `INSERT INTO system_flags (id, flags, updated_at)
+     VALUES ('system', $1::jsonb, NOW())
+     ON CONFLICT (id) DO UPDATE
+       SET flags = system_flags.flags || (
+             $1::jsonb - (
+               SELECT COALESCE(array_agg(k), ARRAY[]::text[])
+                 FROM jsonb_object_keys(system_flags.flags) k
+                WHERE k = ANY (ARRAY['alert_webhook_url','alert_webhook_enabled'])
+             )
+           ),
+           updated_at = NOW()`,
+    [JSON.stringify({ alert_webhook_url: null, alert_webhook_enabled: false })]
+  );
+}

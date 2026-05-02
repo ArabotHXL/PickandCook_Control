@@ -191,8 +191,8 @@ export async function setUserRole(req: Request, res: Response): Promise<void> {
   const { role, note } = req.body ?? {};
   const admin = getAdminUser(req);
 
-  if (!["user", "admin"].includes(role)) {
-    res.status(400).json({ error: "Invalid role" });
+  if (!["user", "admin", "read_only_admin"].includes(role)) {
+    res.status(400).json({ error: "Invalid role (must be user | admin | read_only_admin)" });
     return;
   }
 

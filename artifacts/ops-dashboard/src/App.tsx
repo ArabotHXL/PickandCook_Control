@@ -9,6 +9,7 @@ import { UsersPage } from "@/pages/UsersPage";
 import { PantryPage } from "@/pages/PantryPage";
 import { ProductsPage } from "@/pages/ProductsPage";
 import { RecipesPage } from "@/pages/RecipesPage";
+import { RecipesStagingPage } from "@/pages/RecipesStagingPage";
 import { RecipeDetailPage } from "@/pages/RecipeDetailPage";
 import { ModerationPage } from "@/pages/ModerationPage";
 import { AnalyticsPage } from "@/pages/AnalyticsPage";
@@ -32,7 +33,7 @@ const queryClient = new QueryClient({
 });
 
 function AppRoutes() {
-  const { user, loading, login, logout } = useAuth();
+  const { user, loading, login, logout, verifyTotpLogin } = useAuth();
 
   if (loading) {
     return (
@@ -43,7 +44,7 @@ function AppRoutes() {
   }
 
   if (!user) {
-    return <LoginPage onLogin={login} />;
+    return <LoginPage onLogin={login} onVerifyTotp={verifyTotpLogin} />;
   }
 
   return (
@@ -55,6 +56,7 @@ function AppRoutes() {
         <Route path="/pantry" component={PantryPage} />
         <Route path="/products" component={ProductsPage} />
         <Route path="/recipes" component={RecipesPage} />
+        <Route path="/recipes/staging" component={RecipesStagingPage} />
         <Route path="/recipes/:id" component={RecipeDetailPage} />
         <Route path="/cook-sessions" component={CookSessionsPage} />
         <Route path="/receipts" component={ReceiptsPage} />

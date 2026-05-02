@@ -6,6 +6,7 @@ import type { AdminPayload } from "./auth.js";
 import { HttpError } from "../../lib/httpError.js";
 import { JOB_DEFINITIONS, getJob } from "../../jobs/registry.js";
 import { triggerJobAsync } from "../../jobs/scheduler.js";
+import { sendAlert } from "../../lib/alerts.js";
 
 function getAdminUser(req: Request): AdminPayload {
   return (req as Request & { adminUser: AdminPayload }).adminUser;
@@ -273,4 +274,86 @@ export async function triggerJob(req: Request, res: Response): Promise<void> {
   });
 
   res.status(202).json({ accepted: true, jobName });
+}
+
+/**
+ * Liveness check for downstream services we depend on. Pings each with a
+ * short HEAD/GET timeout and returns the status grid. Never fails — each
+ * downstream is reported individually.
+ */
+export async function getExternalHealth(_req: Request, res: Response): Promise<void> {
+  const targets = [
+    {
+      name: "TheMealDB",
+      url: "https://www.themealdb.com/api/json/v1/1/categories.php",
+      usedBy: "recipes:nightly",
+    },
+    {
+      name: "OpenFoodFacts",
+      url: "https://world.openfoodfacts.org/api/v2/product/737628064502.json",
+      usedBy: "products lookup",
+    },
+    {
+      name: "Wikibooks API",
+      url: "https://en.wikibooks.org/w/api.php?action=query&meta=siteinfo&format=json",
+      usedBy: "wikibooks:weekly",
+    },
+    ...(process.env["FDC_API_KEY"]
+      ? [
+          {
+            name: "USDA FDC",
+            url: `https://api.nal.usda.gov/fdc/v1/foods/search?query=apple&pageSize=1&api_key=${process.env["FDC_API_KEY"]}`,
+            usedBy: "products nutrition",
+          },
+        ]
+      : []),
+  ];
+
+  const results = await Promise.all(
+    targets.map(async (t) => {
+      const start = Date.now();
+      const ctl = new AbortController();
+      const tm = setTimeout(() => ctl.abort(), 5000);
+      try {
+        const r = await fetch(t.url, { signal: ctl.signal });
+        return {
+          name: t.name,
+          usedBy: t.usedBy,
+          ok: r.ok,
+          status: r.status,
+          latencyMs: Date.now() - start,
+        };
+      } catch (err) {
+        return {
+          name: t.name,
+          usedBy: t.usedBy,
+          ok: false,
+          status: 0,
+          latencyMs: Date.now() - start,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      } finally {
+        clearTimeout(tm);
+      }
+    })
+  );
+
+  res.json({ checkedAt: new Date().toISOString(), targets: results });
+}
+
+export async function sendTestAlert(req: Request, res: Response): Promise<void> {
+  const admin = getAdminUser(req);
+  const result = await sendAlert({
+    severity: "info",
+    title: "Test alert from Pick & Cook Ops",
+    body: "If you can read this, your alert webhook is wired up correctly.",
+    fields: [{ label: "Triggered by", value: `admin:${admin.userId.slice(0, 8)}` }],
+  });
+  await writeAuditLog({
+    adminUserId: admin.userId,
+    actionType: "system.send_test_alert",
+    targetType: "alert_webhook",
+    newValue: result,
+  });
+  res.json(result);
 }

@@ -1,7 +1,7 @@
 import cron from "node-cron";
 import { JOB_DEFINITIONS } from "./registry.js";
 import { runJob } from "./runner.js";
-import { ensureJobSchema } from "./migrations.js";
+import { ensureJobSchema, ensureOpsSchema } from "./migrations.js";
 import { logger } from "../lib/logger.js";
 
 let started = false;
@@ -22,6 +22,9 @@ export function startScheduler(): void {
   // the worst case is `startJob` falls back to its non-atomic SELECT path.
   ensureJobSchema().catch((err) => {
     logger.error({ err }, "[worker] ensureJobSchema failed (lock race possible)");
+  });
+  ensureOpsSchema().catch((err) => {
+    logger.error({ err }, "[worker] ensureOpsSchema failed (staging/totp/alerts may be broken)");
   });
 
   for (const def of JOB_DEFINITIONS) {

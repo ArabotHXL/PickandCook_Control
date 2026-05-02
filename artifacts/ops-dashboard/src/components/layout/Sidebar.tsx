@@ -17,6 +17,7 @@ import {
   ClipboardList,
   LogOut,
   ChevronRight,
+  Inbox,
 } from "lucide-react";
 
 interface NavSection {
@@ -48,6 +49,7 @@ const NAV_SECTIONS: NavSection[] = [
     label: "Cooking",
     items: [
       { href: "/recipes", icon: ChefHat, label: "Recipes" },
+      { href: "/recipes/staging", icon: Inbox, label: "Recipe Staging" },
       { href: "/cook-sessions", icon: CookingPot, label: "Cook Sessions" },
     ],
   },
@@ -99,7 +101,12 @@ export function Sidebar({ user, onLogout }: SidebarProps) {
             </p>
             <ul className="space-y-0.5">
               {section.items.map(({ href, icon: Icon, label }) => {
-                const active = href === "/" ? location === "/" : location.startsWith(href);
+                const active =
+                  href === "/"
+                    ? location === "/"
+                    : href === "/recipes"
+                    ? location === "/recipes" || /^\/recipes\/[^/]+$/.test(location)
+                    : location === href || location.startsWith(href + "/");
                 return (
                   <li key={href}>
                     <Link

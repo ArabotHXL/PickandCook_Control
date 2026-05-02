@@ -1,91 +1,62 @@
-# Workspace
+# Overview
 
-## Overview
+This is a pnpm workspace monorepo utilizing TypeScript, designed for a modern web application stack. It comprises an API server, an internal administration dashboard, and a component sandbox. The project aims to streamline development with a unified toolchain and robust features for managing recipes, users, and system operations.
 
-pnpm workspace monorepo using TypeScript. Each package manages its own dependencies.
+The business vision is to provide a comprehensive platform for recipe management, user engagement, and efficient internal operations, with a strong focus on data integrity, administrative control, and scalability. Key capabilities include user-generated content moderation, detailed analytics, system health monitoring, and secure access controls.
+
+# User Preferences
+
+I prefer concise and accurate responses. Please prioritize delivering functional code and focus on task completion. When making changes, ensure they align with the existing architectural patterns and maintain a high standard of code quality. I value clear communication about significant architectural decisions or potential risks before implementation.
+
+# System Architecture
+
+The project is structured as a pnpm monorepo with separate packages for different functionalities.
 
 ## Stack
 
-- **Monorepo tool**: pnpm workspaces
-- **Node.js version**: 24
-- **Package manager**: pnpm
-- **TypeScript version**: 5.9
-- **API framework**: Express 5
-- **Database**: PostgreSQL + Drizzle ORM
-- **Validation**: Zod (`zod/v4`), `drizzle-zod`
-- **API codegen**: Orval (from OpenAPI spec)
-- **Build**: esbuild (CJS bundle)
+-   **Monorepo tool**: pnpm workspaces
+-   **Node.js version**: 24
+-   **Package manager**: pnpm
+-   **TypeScript version**: 5.9
+-   **API framework**: Express 5
+-   **Database**: PostgreSQL + Drizzle ORM
+-   **Validation**: Zod (`zod/v4`), `drizzle-zod`
+-   **API codegen**: Orval (from OpenAPI spec)
+-   **Build**: esbuild (CJS bundle)
+-   **Testing**: Vitest
 
-## Key Commands
+## Core Architectural Decisions
 
-- `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- `pnpm --filter @workspace/api-server run dev` — run API server locally
+-   **Monorepo Structure**: Uses pnpm workspaces for managing multiple packages (`api-server`, `ops-dashboard`, `mockup-sandbox`) within a single repository, promoting code sharing and consistent tooling.
+-   **Type Safety**: TypeScript is used extensively across all packages to ensure type safety and improve code maintainability.
+-   **API Design**: The API server uses Express and Drizzle ORM. Admin routes (`/api/ops/*`) are protected with JWT authentication and role-based access control (`admin`, `read_only_admin`).
+-   **Database Interactions**: Drizzle ORM is used for PostgreSQL interactions, including schema migrations and data manipulation. Query parameter validation for list endpoints is centralized to prevent common errors.
+-   **Data Pipeline**: A lightweight, in-process scheduler runs within the `api-server` for background jobs using `node-cron`. This worker shares the same process and database pool as the API server, with atomic locking mechanisms for job execution across multiple replicas.
+-   **Frontend (Admin Dashboard)**: The `ops-dashboard` is built with React, Vite, React Query, and Tailwind CSS, providing a responsive and interactive user interface for administrative tasks.
+-   **Image Storage**: Object storage is managed via signed PUT URLs for uploads, and public GET access for `/api/storage/objects/*` for displaying images.
+-   **Security**:
+    -   Admin authentication includes optional TOTP 2FA.
+    -   Login attempts are rate-limited to prevent brute-force attacks.
+    -   Role-based access control (`admin` and `read_only_admin`) is strictly enforced for API operations.
+    -   CSV exports perform prefix neutralization to prevent formula injection.
+    -   Sensitive data like TOTP secrets are encrypted at rest.
 
-See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details.
+## Feature Specifications
 
-## Artifacts
+-   **Ops Dashboard Modules**: Includes modules for Overview, Users, Inventory (Pantry, Recipes), Cooking, Insights (AI/LLM Usage, Cook Sessions, Receipts, Analytics), and Operations (System, Feature Flags).
+-   **Recipe Management**: Detailed recipe editing, image uploads, revision history, and a user-generated content (UGC) moderation flow with promotion/rejection capabilities.
+-   **User Management**: User detail drawers with merged event timelines and role management.
+-   **System Monitoring**: External API health checks, job monitoring (stale/zombie job detection), and feature flag management.
+-   **Alerting**: Outbound alert webhook integration for critical system events (job failures, cost thresholds).
+-   **Bulk Moderation**: Functionality for bulk approval or rejection of user-generated content.
 
-- **api-server** (`/api`) — Express + Drizzle backend. Routes mounted under `/api/ops/*` are gated by `requireAdmin` (JWT in `Authorization: Bearer …`, admin role required). `auth.ts` fails fast at import time if `SESSION_SECRET` is unset or shorter than 16 chars.
-- **ops-dashboard** (`/`) — Internal admin dashboard (React + Vite + React Query + Tailwind).
-- **mockup-sandbox** — Component preview sandbox.
+# External Dependencies
 
-## Ops Dashboard Modules
-
-Sidebar grouped into Overview, People, Inventory, Cooking, Insights, Operations.
-
-- Overview, Users, Pantry/Inventory, Recipes, Audit Log (pre-existing)
-- **Recipe Detail** (`/recipes/:id`) — full edit form (title, basics, tags, ingredient IDs, instructions), image upload via signed URL, side panel of revisions with one-click restore. Every save snapshots prior state into `recipe_revisions`.
-- **UGC Detail Modal** — clicking a row in Recipes › User Submissions opens a modal with full content, author summary (other-published / pending counts, total reports), reports list, and Approve / Reject actions.
-- **User Detail Drawer** — clicking a row on Users opens a drawer with merged event timeline (`user_events` + `analytics_events`).
-- **AI / LLM Usage** — token spend & latency, broken down by model / endpoint / day. Top of page shows live cost-alert banner (green / orange / red) backed by `system_flags.flags['ai_daily_cost_threshold_usd']` (default $5); admins can edit threshold inline.
-- **Cook Sessions** — active and historical cook sessions with progress, review status, recipe + user join
-- **Receipts** — uploaded receipts with extracted-items modal
-- **Households** — households with member count and member-detail modal (allergies, allergy groups, dislikes, dietary restrictions normalized to display strings)
-- **Analytics → Search** — top queries, zero-result rate
-- **Analytics → Recommendations** — recsys events by surface / event type / algo version
-- **System → Overview** — auto-discovers every job that has ever run (no hardcoded list); flags any job whose last successful run is older than 2 days as "stale" and any `running` job older than 1 hour as a "zombie". Shows an amber banner with one-click **Clear stuck jobs** button (POST `/api/ops/system/jobs/clear-stuck` — admin-only, audited).
-- **System → Feature Flags** — view & toggle boolean flags per scope (optimistic UI; mutation audited)
-- **CSV export** — Recipes (catalog + user-submissions tabs), Users, Cook Sessions, Receipts list endpoints accept `?format=csv`. Helper `lib/csv.ts` triggers an authenticated browser download. Backend escapes CSV cells and prefix-neutralizes `=+-@\t\r` to prevent formula injection in spreadsheets.
-
-## Object Storage
-
-- `POST /api/storage/uploads/request-url` (admin-only) returns a signed PUT URL plus a persistent `objectPath` (`/objects/<uuid>`) to save as `imageUrl`.
-- `GET /api/storage/objects/*` is public (intentional — `<img>` tags cannot send Bearer tokens; identifiers are unguessable UUIDs and the bucket only stores ops-uploaded recipe imagery).
-- Frontend helpers: `lib/upload.ts` exports `uploadImageFile(file)` (does request-url + PUT) and `resolveImageSrc(url)` which prefixes `/objects/...` with `/api/storage` for display.
-
-## Query-Param Validation
-
-All `/api/ops/*` list endpoints share `routes/ops/queryParams.ts` (`parseLimit`, `parsePage`, `parseDays`). Invalid values (`limit=abc`, `page=-1`, out-of-range `days`) throw `HttpError(400, …)` (`lib/httpError.ts`) which is caught by the global error middleware in `app.ts` and returned as `{"error":"…"}` JSON — no stack trace leaks. Add new list endpoints by importing from `queryParams.js` rather than re-implementing `parseInt(...)` patterns.
-
-## Data Pipeline (Embedded Worker)
-
-A lightweight in-process scheduler runs **inside api-server** (`src/jobs/`) using `node-cron`. There is no separate worker artifact — one process, one DB pool. Gated on `NODE_ENV !== "test"` and `WORKER_ENABLED !== "false"`. All schedules in **UTC**.
-
-| Job | Schedule | Handler | Behaviour |
-| --- | --- | --- | --- |
-| `products:nightly` | `0 3 * * *` | `handlers/productsNightly.ts` | Lints products (counts missing kcal/brand/allergens/ingredients_text) + backfills allergens & ingredients_text from cached `barcode_meta` for products with empty allergens, joined via `product_barcodes`. Hard cap of 500 backfills/run. |
-| `recipes:nightly` | `0 4 * * *` | `handlers/recipesNightly.ts` | Reads cursor from `recipe_sync_state` (source `themealdb`), fetches `https://www.themealdb.com/api/json/v1/1/search.php?f=<letter>`, dedupes by `source_recipe_id`, inserts into `imported_recipes_staging` with mapping_rate computed by ILIKE-matching ingredient names against `products.name` + `synonyms`, advances cursor a→b→…→z→a. |
-| `wikibooks:weekly` | `0 5 * * 0` | `handlers/wikibooksWeekly.ts` | **Stub**. Wikibooks scraper is genuinely deferred — the cookbook tree is hand-curated XHTML and brittle to scrape; we'll revisit when there's a stronger product need. Logs `{deferred: true}`, finishes success so the dashboard stays green. |
-
-**Lifecycle code:**
-- `src/jobs/runner.ts` — `runJob(name, triggeredBy)` writes `job_runs` start/finish/fail rows. Locking is **atomic**: a partial unique index `job_runs_one_running_per_name ON job_runs(job_name) WHERE status='running'` (created by `migrations.ts` at boot) means `startJob` can `INSERT … ON CONFLICT DO NOTHING` and detect "already running" without a SELECT-then-INSERT race. Stale rows (locked_until expired) are reaped per-job before each claim.
-- `src/jobs/migrations.ts` — `ensureJobSchema()` creates the partial unique index idempotently at boot; reaps stale rows and retries if the create fails.
-- `src/jobs/registry.ts` — single source of truth: `name`, `cronExpr`, `description`, `handler`.
-- `src/jobs/scheduler.ts` — wires cron schedules at boot + exposes `triggerJobAsync(name, triggeredBy)` for manual runs.
-
-**Manual trigger:**
-- `GET /api/ops/system/jobs/available` — list registered jobs (admin-only).
-- `POST /api/ops/system/jobs/:jobName/trigger` — fire-and-forget; returns 202 immediately, runner records the row. Launch errors logged via `req.log`. Audited as `system.trigger_job`. Surfaced as a **Run** button next to each tracked job on `/system`.
-
-**Deploy caveat (multi-replica):** The atomic lock works across multiple processes hitting the same DB, so horizontal scaling is safe — only one replica wins the `INSERT ON CONFLICT` per job. However, every replica's cron will *attempt* to fire at the same UTC minute, so expect "skipped (already running)" warning logs on the loser replicas. If this becomes noisy, set `WORKER_ENABLED=false` on all but one replica.
-
-**OpenAPI status:** Ops routes (`/api/ops/*`) are NOT yet in the OpenAPI spec — only `/api/healthz` is. Migrating them is a deliberate follow-up (large surface area, would 3× the spec). For now they stay hand-rolled with shared validation in `routes/ops/queryParams.ts`.
-
-## Auth & Login
-
-- Admin login: `POST /api/ops/auth/login` → `{ token }`. Frontend stores in `localStorage["ops_token"]` and sends as `Authorization: Bearer …`.
-- Login is throttled by `express-rate-limit`: **10 attempts per IP per 15 minutes** → HTTP 429. `app.set("trust proxy", 1)` so the limiter sees the real client IP behind Replit's shared proxy.
-- Default admin (dev seed): `admin@pickandcook.dev` / `Admin123!`.
+-   **TheMealDB**: Used for importing recipes into a staging area.
+-   **OpenFoodFacts**: Pinged for external health checks.
+-   **MediaWiki API (Wikibooks)**: Used as a real scraper for recipe content, with cursor-based fetching.
+-   **FDC (FoodData Central) API**: Used for external health checks if an API key is configured.
+-   **qrcode package**: Used for generating QR codes for TOTP setup.
+-   **otplib**: Used for TOTP 2FA implementation.
+-   **node-cron**: Used for scheduling in-process background jobs.
+-   **express-rate-limit**: Used for API rate limiting on login and TOTP verification endpoints.

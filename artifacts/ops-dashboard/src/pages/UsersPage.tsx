@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/query-client";
 import { PageHeader } from "@/components/ui/page-header";
-import { Search, ChevronLeft, ChevronRight, UserCheck, UserX } from "lucide-react";
+import { Search, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { UserDetailDrawer } from "@/components/UserDetailDrawer";
 import { useToast } from "@/hooks/use-toast";
@@ -34,8 +34,11 @@ function useUsers(q: string, page: number, role: string, sortQs: string) {
 
 const ROLE_BADGE: Record<string, string> = {
   admin: "bg-primary/10 text-primary",
+  read_only_admin: "bg-blue-100 text-blue-700",
   user: "bg-muted text-muted-foreground",
 };
+
+const ROLE_OPTIONS = ["user", "read_only_admin", "admin"] as const;
 
 export function UsersPage() {
   const [q, setQ] = useState("");
@@ -98,6 +101,7 @@ export function UsersPage() {
           >
             <option value="">All roles</option>
             <option value="user">User</option>
+            <option value="read_only_admin">Read-only admin</option>
             <option value="admin">Admin</option>
           </select>
         </div>
@@ -160,25 +164,21 @@ export function UsersPage() {
                       {u.createdAt ? new Date(u.createdAt).toLocaleDateString() : "—"}
                     </td>
                     <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex items-center gap-1 justify-end">
-                        {u.role !== "admin" ? (
-                          <button
-                            onClick={() => setRoleMutation.mutate({ userId: u.id, role: "admin" })}
-                            title="Make admin"
-                            className="p-1.5 rounded hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors"
-                          >
-                            <UserCheck className="w-3.5 h-3.5" />
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => setRoleMutation.mutate({ userId: u.id, role: "user" })}
-                            title="Remove admin"
-                            className="p-1.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
-                          >
-                            <UserX className="w-3.5 h-3.5" />
-                          </button>
+                      <select
+                        value={u.role}
+                        onChange={(e) => setRoleMutation.mutate({ userId: u.id, role: e.target.value })}
+                        disabled={setRoleMutation.isPending}
+                        title="Change role"
+                        className="px-2 py-1 rounded border border-input bg-background text-xs focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+                        data-testid={`select-role-${u.id}`}
+                      >
+                        {ROLE_OPTIONS.map((r) => (
+                          <option key={r} value={r}>{r}</option>
+                        ))}
+                        {!ROLE_OPTIONS.includes(u.role as typeof ROLE_OPTIONS[number]) && (
+                          <option value={u.role}>{u.role}</option>
                         )}
-                      </div>
+                      </select>
                     </td>
                   </tr>
                 ))
