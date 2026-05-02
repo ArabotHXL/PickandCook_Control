@@ -2,10 +2,20 @@ import type { Request, Response } from "express";
 import { query } from "./db.js";
 import { writeAuditLog } from "./audit.js";
 import type { AdminPayload } from "./auth.js";
+import { buildOrderBy } from "./csv.js";
 
 function getAdminUser(req: Request): AdminPayload {
   return (req as Request & { adminUser: AdminPayload }).adminUser;
 }
+
+const MODERATION_SORTS: Record<string, string> = {
+  contentType: "ar.content_type",
+  reason: "ar.reason",
+  reporterEmail: "u.email",
+  status: "ar.status",
+  createdAt: "ar.created_at",
+  updatedAt: "ar.updated_at",
+};
 
 export async function listModeration(req: Request, res: Response): Promise<void> {
   const contentType = req.query.contentType as string | undefined;
@@ -25,6 +35,7 @@ export async function listModeration(req: Request, res: Response): Promise<void>
   }
 
   const where = `WHERE ${conditions.join(" AND ")}`;
+  const orderBy = buildOrderBy(req.query.sort, req.query.dir, MODERATION_SORTS, "ar.created_at", "ar.id");
 
   const [items, countRows] = await Promise.all([
     query<{
@@ -45,7 +56,7 @@ export async function listModeration(req: Request, res: Response): Promise<void>
        FROM abuse_reports ar
        LEFT JOIN users u ON u.id = ar.reporter_user_id
        ${where}
-       ORDER BY ar.created_at DESC
+       ${orderBy}
        LIMIT $${pi} OFFSET $${pi + 1}`,
       [...params, limit, offset]
     ),

@@ -1,10 +1,20 @@
 import type { Request, Response } from "express";
 import { query } from "./db.js";
+import { buildOrderBy } from "./csv.js";
+
+const HOUSEHOLD_SORTS: Record<string, string> = {
+  name: "h.name",
+  ownerEmail: "u.email",
+  memberCount: "(SELECT COUNT(*) FROM household_members WHERE household_id = h.id)",
+  createdAt: "h.created_at",
+  updatedAt: "h.updated_at",
+};
 
 export async function listHouseholds(req: Request, res: Response): Promise<void> {
   const page = Math.max(1, parseInt(String(req.query.page ?? "1"), 10));
   const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit ?? "50"), 10)));
   const offset = (page - 1) * limit;
+  const orderBy = buildOrderBy(req.query.sort, req.query.dir, HOUSEHOLD_SORTS, "h.created_at", "h.id");
 
   const [rows, count] = await Promise.all([
     query<{
@@ -21,7 +31,7 @@ export async function listHouseholds(req: Request, res: Response): Promise<void>
               h.created_at, h.updated_at
          FROM households h
          LEFT JOIN users u ON u.id = h.owner_user_id
-         ORDER BY h.created_at DESC
+         ${orderBy}
          LIMIT $1 OFFSET $2`,
       [limit, offset]
     ),

@@ -1,5 +1,13 @@
 import type { Request, Response } from "express";
 import { query } from "./db.js";
+import { buildOrderBy } from "./csv.js";
+
+const AUDIT_SORTS: Record<string, string> = {
+  createdAt: "al.created_at",
+  adminEmail: "u.email",
+  actionType: "al.action_type",
+  targetType: "al.target_type",
+};
 
 export async function listAuditLog(req: Request, res: Response): Promise<void> {
   const adminUserId = req.query.adminUserId as string | undefined;
@@ -30,6 +38,7 @@ export async function listAuditLog(req: Request, res: Response): Promise<void> {
   }
 
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  const orderBy = buildOrderBy(req.query.sort, req.query.dir, AUDIT_SORTS, "al.created_at", "al.id");
 
   const [entries, countRows] = await Promise.all([
     query<{
@@ -50,7 +59,7 @@ export async function listAuditLog(req: Request, res: Response): Promise<void> {
        FROM ops_audit_log al
        LEFT JOIN users u ON u.id = al.admin_user_id
        ${where}
-       ORDER BY al.created_at DESC
+       ${orderBy}
        LIMIT $${pi} OFFSET $${pi + 1}`,
       [...params, limit, offset]
     ),

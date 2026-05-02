@@ -2,10 +2,21 @@ import type { Request, Response } from "express";
 import { query } from "./db.js";
 import { writeAuditLog } from "./audit.js";
 import type { AdminPayload } from "./auth.js";
+import { buildOrderBy } from "./csv.js";
 
 function getAdminUser(req: Request): AdminPayload {
   return (req as Request & { adminUser: AdminPayload }).adminUser;
 }
+
+const PANTRY_SORTS: Record<string, string> = {
+  ingredientId: "pi.ingredient_id",
+  userEmail: "u.email",
+  quantity: "pi.quantity",
+  unit: "pi.unit",
+  sourceType: "pi.source_type",
+  addedAt: "pi.added_at",
+  updatedAt: "pi.updated_at",
+};
 
 export async function listPantryItems(req: Request, res: Response): Promise<void> {
   const userId = req.query.userId as string | undefined;
@@ -47,6 +58,7 @@ export async function listPantryItems(req: Request, res: Response): Promise<void
   }
 
   const where = `WHERE ${conditions.join(" AND ")}`;
+  const orderBy = buildOrderBy(req.query.sort, req.query.dir, PANTRY_SORTS, "pi.added_at", "pi.id");
 
   const [items, countRows] = await Promise.all([
     query<{
@@ -67,7 +79,7 @@ export async function listPantryItems(req: Request, res: Response): Promise<void
        FROM pantry_items pi
        LEFT JOIN users u ON u.id = pi.user_id
        ${where}
-       ORDER BY pi.added_at DESC
+       ${orderBy}
        LIMIT $${pi} OFFSET $${pi + 1}`,
       [...params, limit, offset]
     ),

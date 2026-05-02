@@ -2,10 +2,35 @@ import type { Request, Response } from "express";
 import { query } from "./db.js";
 import { writeAuditLog } from "./audit.js";
 import type { AdminPayload } from "./auth.js";
+import { buildOrderBy } from "./csv.js";
 
 function getAdminUser(req: Request): AdminPayload {
   return (req as Request & { adminUser: AdminPayload }).adminUser;
 }
+
+const PRODUCT_SORTS: Record<string, string> = {
+  name: "p.name",
+  brand: "p.brand",
+  department: "p.department",
+  kcal: "p.kcal",
+  barcodeCount: "(SELECT COUNT(*) FROM product_barcodes pb WHERE pb.product_id = p.id)",
+  createdAt: "p.created_at",
+};
+
+const BARCODE_SORTS: Record<string, string> = {
+  barcode: "barcode",
+  scanCount: "scan_count",
+  lastScannedAt: "last_scanned_at",
+};
+
+const PROPOSAL_SORTS: Record<string, string> = {
+  proposalType: "ep.proposal_type",
+  riskLevel: "ep.risk_level",
+  objectType: "ep.object_type",
+  creatorEmail: "u.email",
+  status: "ep.status",
+  createdAt: "ep.created_at",
+};
 
 export async function listProducts(req: Request, res: Response): Promise<void> {
   const q = (req.query.q as string) ?? "";
@@ -31,6 +56,7 @@ export async function listProducts(req: Request, res: Response): Promise<void> {
   }
 
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  const orderBy = buildOrderBy(req.query.sort, req.query.dir, PRODUCT_SORTS, "p.created_at", "p.id");
 
   const [products, countRows] = await Promise.all([
     query<{
@@ -46,7 +72,7 @@ export async function listProducts(req: Request, res: Response): Promise<void> {
               COALESCE((SELECT COUNT(*) FROM product_barcodes pb WHERE pb.product_id = p.id), 0)::text AS barcode_count
        FROM products p
        ${where}
-       ORDER BY p.created_at DESC
+       ${orderBy}
        LIMIT $${pi} OFFSET $${pi + 1}`,
       [...params, limit, offset]
     ),
@@ -84,6 +110,14 @@ export async function listUnknownBarcodes(req: Request, res: Response): Promise<
   const page = Math.max(1, parseInt(String(req.query.page ?? "1"), 10));
   const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit ?? "50"), 10)));
   const offset = (page - 1) * limit;
+  // Aggregate query — sorting must reference SELECT aliases. Default keeps
+  // existing scan_count DESC, last_scanned_at DESC ordering.
+  const dir = String(req.query.dir ?? "").toLowerCase() === "asc" ? "ASC" : "DESC";
+  const sortKey = typeof req.query.sort === "string" ? req.query.sort : "";
+  const sortCol = BARCODE_SORTS[sortKey];
+  const orderBy = sortCol
+    ? `ORDER BY ${sortCol} ${dir} NULLS LAST, barcode ASC`
+    : `ORDER BY scan_count DESC, last_scanned_at DESC, barcode ASC`;
 
   const [rows, countRows] = await Promise.all([
     query<{
@@ -99,7 +133,7 @@ export async function listUnknownBarcodes(req: Request, res: Response): Promise<
        WHERE event = 'scan_not_found'
          AND properties->>'barcode' IS NOT NULL
        GROUP BY properties->>'barcode'
-       ORDER BY scan_count DESC, last_scanned_at DESC
+       ${orderBy}
        LIMIT $1 OFFSET $2`,
       [limit, offset]
     ),
@@ -128,6 +162,7 @@ export async function listProductProposals(req: Request, res: Response): Promise
   const page = Math.max(1, parseInt(String(req.query.page ?? "1"), 10));
   const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit ?? "50"), 10)));
   const offset = (page - 1) * limit;
+  const orderBy = buildOrderBy(req.query.sort, req.query.dir, PROPOSAL_SORTS, "ep.created_at", "ep.id");
 
   const [proposals, countRows] = await Promise.all([
     query<{
@@ -151,7 +186,7 @@ export async function listProductProposals(req: Request, res: Response): Promise
        FROM edit_proposals ep
        LEFT JOIN users u ON u.id = ep.created_by
        WHERE ep.status = $1
-       ORDER BY ep.created_at DESC
+       ${orderBy}
        LIMIT $2 OFFSET $3`,
       [status, limit, offset]
     ),

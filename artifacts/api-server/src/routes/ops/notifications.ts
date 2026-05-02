@@ -1,5 +1,14 @@
 import type { Request, Response } from "express";
 import { query } from "./db.js";
+import { buildOrderBy } from "./csv.js";
+
+const NOTIFICATION_LOG_SORTS: Record<string, string> = {
+  title: "nl.title",
+  category: "nl.category",
+  status: "nl.status",
+  sentAt: "nl.sent_at",
+  userId: "nl.user_id",
+};
 
 export async function listNotificationTemplates(_req: Request, res: Response): Promise<void> {
   const templates = await query<{
@@ -38,6 +47,7 @@ export async function listNotificationLog(req: Request, res: Response): Promise<
   }
 
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  const orderBy = buildOrderBy(req.query.sort, req.query.dir, NOTIFICATION_LOG_SORTS, "nl.sent_at", "nl.id");
 
   const [logs, countRows] = await Promise.all([
     query<{
@@ -52,7 +62,7 @@ export async function listNotificationLog(req: Request, res: Response): Promise<
       `SELECT nl.id::text, nl.user_id, nl.category, nl.title, nl.body, nl.status, nl.sent_at
        FROM notification_log nl
        ${where}
-       ORDER BY nl.sent_at DESC
+       ${orderBy}
        LIMIT $${pi} OFFSET $${pi + 1}`,
       [...params, limit, offset]
     ),
