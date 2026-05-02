@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { apiFetch } from "@/lib/query-client";
@@ -89,12 +89,18 @@ function StagingDetailDrawer({
   const { toast } = useToast();
   const qc = useQueryClient();
   const [note, setNote] = useState("");
+  const [showAllUnmapped, setShowAllUnmapped] = useState(false);
 
   const detail = useQuery<StagingDetail>({
     queryKey: ["ops", "staging", stagingId],
     queryFn: () => apiFetch(`/api/ops/recipes/staging/${stagingId}`).then((r) => r.json()),
     enabled: !!stagingId,
   });
+
+  // Reset the "show all" toggle whenever a different row is opened.
+  useEffect(() => {
+    setShowAllUnmapped(false);
+  }, [stagingId]);
 
   const promote = useMutation({
     mutationFn: () =>
@@ -203,13 +209,25 @@ function StagingDetailDrawer({
                     {d.unmappedIngredientNames.length} ingredient(s) won&apos;t map to your products catalog
                   </p>
                   <ul className="text-xs text-orange-900 list-disc pl-5 space-y-0.5">
-                    {d.unmappedIngredientNames.slice(0, 12).map((n) => (
+                    {(showAllUnmapped
+                      ? d.unmappedIngredientNames
+                      : d.unmappedIngredientNames.slice(0, 12)
+                    ).map((n) => (
                       <li key={n}>{n}</li>
                     ))}
-                    {d.unmappedIngredientNames.length > 12 && (
-                      <li className="text-orange-700">…+{d.unmappedIngredientNames.length - 12} more</li>
-                    )}
                   </ul>
+                  {d.unmappedIngredientNames.length > 12 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAllUnmapped((v) => !v)}
+                      data-testid="button-toggle-unmapped"
+                      className="mt-2 text-xs font-medium text-orange-800 hover:text-orange-900 hover:underline"
+                    >
+                      {showAllUnmapped
+                        ? "Show fewer"
+                        : `Show all ${d.unmappedIngredientNames.length}`}
+                    </button>
+                  )}
                 </div>
               )}
 
