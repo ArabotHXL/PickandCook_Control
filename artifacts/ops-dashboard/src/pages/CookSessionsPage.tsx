@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/query-client";
 import { PageHeader } from "@/components/ui/page-header";
@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { ExportMenu } from "@/components/ExportMenu";
 import { SortableHeader } from "@/components/SortableHeader";
 import { useSort } from "@/hooks/useSort";
+import { useDebounced } from "@/hooks/useDebounced";
 
 function useCookSessions(status: string, page: number, sortQs: string) {
   return useQuery({
@@ -61,17 +62,6 @@ function useItemized(since: string, q: string, page: number, sortQs: string, ena
       return apiFetch(`/api/ops/cook-sessions/itemized?${params.toString()}${sortQs}`).then((r) => r.json());
     },
   });
-}
-
-// Debounce a value by `delay` ms so search input doesn't fire a query on
-// every keystroke (the itemized aggregation is expensive at scale).
-function useDebounced<T>(value: T, delay = 300): T {
-  const [v, setV] = useState(value);
-  useEffect(() => {
-    const t = setTimeout(() => setV(value), delay);
-    return () => clearTimeout(t);
-  }, [value, delay]);
-  return v;
 }
 
 const STATUS_BADGE: Record<string, string> = {

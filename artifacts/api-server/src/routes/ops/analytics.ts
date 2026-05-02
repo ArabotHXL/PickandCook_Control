@@ -56,6 +56,9 @@ export async function listAnalyticsEvents(req: Request, res: Response): Promise<
   const page = parsePage(req.query.page);
   const limit = parseLimit(req.query.limit, { def: 100, max: 200 });
   const offset = (page - 1) * limit;
+  // Optional rolling window. Validates 1..90; absent => unbounded so explicit
+  // `from`/`to` still work for arbitrary ranges.
+  const days = req.query.days === undefined ? undefined : parseDays(req.query.days, { def: 30, max: 90 });
 
   const conditions: string[] = [];
   const params: unknown[] = [];
@@ -80,9 +83,15 @@ export async function listAnalyticsEvents(req: Request, res: Response): Promise<
     pi++;
   }
 
+  // Explicit from/to take precedence over `days`. If neither is set but
+  // `days` is, apply the rolling window.
   if (from) {
     conditions.push(`ae.created_at >= $${pi}`);
     params.push(new Date(from + "T00:00:00Z"));
+    pi++;
+  } else if (days !== undefined) {
+    conditions.push(`ae.created_at >= $${pi}`);
+    params.push(new Date(Date.now() - days * 86400_000));
     pi++;
   }
 
