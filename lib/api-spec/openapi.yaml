@@ -32,6 +32,8 @@ tags:
     description: Ops system health
   - name: ops-audit
     description: Ops audit log
+  - name: ops-staging
+    description: Ops recipe-staging queue (TheMealDB / Wikibooks imports)
 
 paths:
   /healthz:
@@ -509,6 +511,199 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/OpsRecipeReportListResponse"
+
+  # ── Recipe Staging ────────────────────────────────────────────────────────
+  /ops/recipes/staging:
+    get:
+      operationId: listOpsStaging
+      tags: [ops-staging]
+      summary: List recipe-staging rows
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            default: pending
+            enum:
+              - pending
+              - all
+              - imported
+              - ready
+              - needs_review
+              - promoted
+              - rejected
+        - name: source
+          in: query
+          schema:
+            type: string
+        - name: q
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            minimum: 1
+            maximum: 100
+        - name: sort
+          in: query
+          schema:
+            type: string
+        - name: dir
+          in: query
+          schema:
+            type: string
+            enum: [asc, desc]
+      responses:
+        "200":
+          description: Staging list with facets
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsStagingListResponse"
+
+  /ops/recipes/staging/{stagingId}:
+    get:
+      operationId: getOpsStagingDetail
+      tags: [ops-staging]
+      summary: Fetch a staging row in detail
+      parameters:
+        - name: stagingId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Staging detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsStagingDetail"
+        "404":
+          description: Not found
+    patch:
+      operationId: updateOpsStaging
+      tags: [ops-staging]
+      summary: Edit a staging row (title, ingredients, etc.)
+      parameters:
+        - name: stagingId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpsStagingPatchBody"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+
+  /ops/recipes/staging/{stagingId}/promote:
+    post:
+      operationId: promoteOpsStaging
+      tags: [ops-staging]
+      summary: Promote a staging row into the live recipes catalog
+      parameters:
+        - name: stagingId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpsStagingDecisionBody"
+      responses:
+        "200":
+          description: Promoted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsStagingPromoteResponse"
+        "409":
+          description: Already finalized
+
+  /ops/recipes/staging/{stagingId}/reject:
+    post:
+      operationId: rejectOpsStaging
+      tags: [ops-staging]
+      summary: Reject a staging row
+      parameters:
+        - name: stagingId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpsStagingDecisionBody"
+      responses:
+        "200":
+          description: Rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+
+  /ops/recipes/staging/remap:
+    post:
+      operationId: remapOpsStagingIngredients
+      tags: [ops-staging]
+      summary: Re-run ingredient mapping over imported / needs_review rows
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpsStagingRemapBody"
+      responses:
+        "200":
+          description: Remap rollup
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsStagingRemapResponse"
+
+  /ops/recipes/staging/reextract:
+    post:
+      operationId: reextractOpsStagingIngredients
+      tags: [ops-staging]
+      summary: Re-fetch wikitext and re-run structured ingredient extraction (wikibooks only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpsStagingReextractBody"
+      responses:
+        "200":
+          description: Reextract rollup
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsStagingReextractResponse"
+        "400":
+          description: Unsupported source
 
   # ── Moderation ────────────────────────────────────────────────────────────
   /ops/moderation:
@@ -1256,6 +1451,229 @@ components:
         note:
           type: string
       required: []
+
+    # ── Recipe Staging ────────────────────────────────────────────────────
+    OpsStagingRow:
+      type: object
+      properties:
+        id:
+          type: string
+        source:
+          type: string
+        sourceRecipeId:
+          type: string
+          nullable: true
+        title:
+          type: string
+        status:
+          type: string
+        cuisineTags:
+          type: array
+          items:
+            type: string
+        estimatedTimeMin:
+          type: number
+          nullable: true
+        difficulty:
+          type: string
+          nullable: true
+        mappingRate:
+          type: number
+          nullable: true
+        unmappedIngredientNames:
+          type: array
+          items:
+            type: string
+        mappedIngredientCount:
+          type: integer
+        imageUrl:
+          type: string
+          nullable: true
+        sourceUrl:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+        promotedRecipeId:
+          type: string
+          nullable: true
+      required:
+        - id
+        - source
+        - title
+        - status
+        - cuisineTags
+        - unmappedIngredientNames
+        - mappedIngredientCount
+        - createdAt
+
+    OpsStagingDetail:
+      allOf:
+        - $ref: "#/components/schemas/OpsStagingRow"
+        - type: object
+          properties:
+            instructionsSummary:
+              type: string
+              nullable: true
+            instructionsSteps:
+              type: array
+              description: Structured cooking steps. Shape is source-dependent (e.g. `{ text, index }` for Wikibooks); kept open so the contract isn't a lie.
+              items: {}
+            rawPayload: {}
+          required:
+            - instructionsSteps
+
+    OpsStagingFacetSource:
+      type: object
+      properties:
+        source:
+          type: string
+        count:
+          type: integer
+      required: [source, count]
+
+    OpsStagingFacetStatus:
+      type: object
+      properties:
+        status:
+          type: string
+        count:
+          type: integer
+      required: [status, count]
+
+    OpsStagingFacets:
+      type: object
+      properties:
+        sources:
+          type: array
+          items:
+            $ref: "#/components/schemas/OpsStagingFacetSource"
+        statuses:
+          type: array
+          items:
+            $ref: "#/components/schemas/OpsStagingFacetStatus"
+      required: [sources, statuses]
+
+    OpsStagingListResponse:
+      type: object
+      properties:
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/OpsStagingRow"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+        facets:
+          $ref: "#/components/schemas/OpsStagingFacets"
+      required:
+        - rows
+        - total
+        - page
+        - limit
+        - facets
+
+    OpsStagingPatchBody:
+      type: object
+      properties:
+        title:
+          type: string
+        requiredIngredientIds:
+          type: array
+          items:
+            type: string
+        unmappedIngredientNames:
+          type: array
+          items:
+            type: string
+        estimatedTimeMin:
+          type: number
+        difficulty:
+          type: string
+        notes:
+          type: string
+
+    OpsStagingDecisionBody:
+      type: object
+      properties:
+        note:
+          type: string
+
+    OpsStagingPromoteResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        recipeId:
+          type: string
+      required: [ok, recipeId]
+
+    OpsStagingRemapBody:
+      type: object
+      properties:
+        source:
+          type: string
+        onlyNeedsReview:
+          type: boolean
+
+    OpsStagingRemapResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        scanned:
+          type: integer
+        touched:
+          type: integer
+        newlyMappedIngredients:
+          type: integer
+        promotedToReady:
+          type: integer
+      required:
+        - ok
+        - scanned
+        - touched
+        - newlyMappedIngredients
+        - promotedToReady
+
+    OpsStagingReextractBody:
+      type: object
+      properties:
+        source:
+          type: string
+          enum: [wikibooks]
+        onlyNeedsReview:
+          type: boolean
+      required: [source]
+
+    OpsStagingReextractResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        scanned:
+          type: integer
+        touched:
+          type: integer
+        errors:
+          type: integer
+        mappedDelta:
+          type: integer
+        promotedToReady:
+          type: integer
+      required:
+        - ok
+        - scanned
+        - touched
+        - errors
+        - mappedDelta
+        - promotedToReady
 
     OpsUserRecipeRow:
       type: object

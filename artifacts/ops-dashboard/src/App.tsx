@@ -1,5 +1,7 @@
 import { Switch, Route, Router as WouterRouter } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { setBaseUrl, setAuthTokenGetter } from "@workspace/api-client-react";
+import { getToken } from "@/lib/auth";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Layout } from "@/components/layout/Layout";
@@ -22,6 +24,15 @@ import { ReceiptsPage } from "@/pages/ReceiptsPage";
 import { HouseholdsPage } from "@/pages/HouseholdsPage";
 import { useAuth } from "@/hooks/useAuth";
 import NotFound from "@/pages/not-found";
+
+// Wire the generated API client to the dashboard's base path + bearer token.
+// Generated URLs start with `/api/...`; setBaseUrl prepends the artifact's
+// mount prefix (e.g. `/ops-dashboard`) so requests survive path-based routing.
+// setAuthTokenGetter attaches the JWT bearer token from localStorage on every
+// request, matching how the legacy `apiFetch` helper worked.
+const _BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+setBaseUrl(_BASE || null);
+setAuthTokenGetter(() => getToken());
 
 const queryClient = new QueryClient({
   defaultOptions: {

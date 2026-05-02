@@ -541,6 +541,202 @@ export const GetOpsRecipeReportsResponse = zod.object({
 });
 
 /**
+ * @summary List recipe-staging rows
+ */
+export const listOpsStagingQueryStatusDefault = `pending`;
+export const listOpsStagingQueryPageDefault = 1;
+export const listOpsStagingQueryLimitDefault = 50;
+export const listOpsStagingQueryLimitMax = 100;
+
+export const ListOpsStagingQueryParams = zod.object({
+  status: zod
+    .enum([
+      "pending",
+      "all",
+      "imported",
+      "ready",
+      "needs_review",
+      "promoted",
+      "rejected",
+    ])
+    .default(listOpsStagingQueryStatusDefault),
+  source: zod.coerce.string().optional(),
+  q: zod.coerce.string().optional(),
+  page: zod.coerce.number().default(listOpsStagingQueryPageDefault),
+  limit: zod.coerce
+    .number()
+    .min(1)
+    .max(listOpsStagingQueryLimitMax)
+    .default(listOpsStagingQueryLimitDefault),
+  sort: zod.coerce.string().optional(),
+  dir: zod.enum(["asc", "desc"]).optional(),
+});
+
+export const ListOpsStagingResponse = zod.object({
+  rows: zod.array(
+    zod.object({
+      id: zod.string(),
+      source: zod.string(),
+      sourceRecipeId: zod.string().nullish(),
+      title: zod.string(),
+      status: zod.string(),
+      cuisineTags: zod.array(zod.string()),
+      estimatedTimeMin: zod.number().nullish(),
+      difficulty: zod.string().nullish(),
+      mappingRate: zod.number().nullish(),
+      unmappedIngredientNames: zod.array(zod.string()),
+      mappedIngredientCount: zod.number(),
+      imageUrl: zod.string().nullish(),
+      sourceUrl: zod.string().nullish(),
+      notes: zod.string().nullish(),
+      createdAt: zod.string(),
+      promotedRecipeId: zod.string().nullish(),
+    }),
+  ),
+  total: zod.number(),
+  page: zod.number(),
+  limit: zod.number(),
+  facets: zod.object({
+    sources: zod.array(
+      zod.object({
+        source: zod.string(),
+        count: zod.number(),
+      }),
+    ),
+    statuses: zod.array(
+      zod.object({
+        status: zod.string(),
+        count: zod.number(),
+      }),
+    ),
+  }),
+});
+
+/**
+ * @summary Fetch a staging row in detail
+ */
+export const GetOpsStagingDetailParams = zod.object({
+  stagingId: zod.coerce.string(),
+});
+
+export const GetOpsStagingDetailResponse = zod
+  .object({
+    id: zod.string(),
+    source: zod.string(),
+    sourceRecipeId: zod.string().nullish(),
+    title: zod.string(),
+    status: zod.string(),
+    cuisineTags: zod.array(zod.string()),
+    estimatedTimeMin: zod.number().nullish(),
+    difficulty: zod.string().nullish(),
+    mappingRate: zod.number().nullish(),
+    unmappedIngredientNames: zod.array(zod.string()),
+    mappedIngredientCount: zod.number(),
+    imageUrl: zod.string().nullish(),
+    sourceUrl: zod.string().nullish(),
+    notes: zod.string().nullish(),
+    createdAt: zod.string(),
+    promotedRecipeId: zod.string().nullish(),
+  })
+  .and(
+    zod.object({
+      instructionsSummary: zod.string().nullish(),
+      instructionsSteps: zod
+        .array(zod.unknown())
+        .describe(
+          "Structured cooking steps. Shape is source-dependent (e.g. `{ text, index }` for Wikibooks); kept open so the contract isn't a lie.",
+        ),
+      rawPayload: zod.unknown().optional(),
+    }),
+  );
+
+/**
+ * @summary Edit a staging row (title, ingredients, etc.)
+ */
+export const UpdateOpsStagingParams = zod.object({
+  stagingId: zod.coerce.string(),
+});
+
+export const UpdateOpsStagingBody = zod.object({
+  title: zod.string().optional(),
+  requiredIngredientIds: zod.array(zod.string()).optional(),
+  unmappedIngredientNames: zod.array(zod.string()).optional(),
+  estimatedTimeMin: zod.number().optional(),
+  difficulty: zod.string().optional(),
+  notes: zod.string().optional(),
+});
+
+export const UpdateOpsStagingResponse = zod.object({
+  ok: zod.boolean(),
+  message: zod.string().optional(),
+});
+
+/**
+ * @summary Promote a staging row into the live recipes catalog
+ */
+export const PromoteOpsStagingParams = zod.object({
+  stagingId: zod.coerce.string(),
+});
+
+export const PromoteOpsStagingBody = zod.object({
+  note: zod.string().optional(),
+});
+
+export const PromoteOpsStagingResponse = zod.object({
+  ok: zod.boolean(),
+  recipeId: zod.string(),
+});
+
+/**
+ * @summary Reject a staging row
+ */
+export const RejectOpsStagingParams = zod.object({
+  stagingId: zod.coerce.string(),
+});
+
+export const RejectOpsStagingBody = zod.object({
+  note: zod.string().optional(),
+});
+
+export const RejectOpsStagingResponse = zod.object({
+  ok: zod.boolean(),
+  message: zod.string().optional(),
+});
+
+/**
+ * @summary Re-run ingredient mapping over imported / needs_review rows
+ */
+export const RemapOpsStagingIngredientsBody = zod.object({
+  source: zod.string().optional(),
+  onlyNeedsReview: zod.boolean().optional(),
+});
+
+export const RemapOpsStagingIngredientsResponse = zod.object({
+  ok: zod.boolean(),
+  scanned: zod.number(),
+  touched: zod.number(),
+  newlyMappedIngredients: zod.number(),
+  promotedToReady: zod.number(),
+});
+
+/**
+ * @summary Re-fetch wikitext and re-run structured ingredient extraction (wikibooks only)
+ */
+export const ReextractOpsStagingIngredientsBody = zod.object({
+  source: zod.enum(["wikibooks"]),
+  onlyNeedsReview: zod.boolean().optional(),
+});
+
+export const ReextractOpsStagingIngredientsResponse = zod.object({
+  ok: zod.boolean(),
+  scanned: zod.number(),
+  touched: zod.number(),
+  errors: zod.number(),
+  mappedDelta: zod.number(),
+  promotedToReady: zod.number(),
+});
+
+/**
  * @summary List moderation queue items
  */
 export const getOpsModerationQueryStatusDefault = `pending`;

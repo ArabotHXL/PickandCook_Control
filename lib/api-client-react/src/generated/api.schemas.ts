@@ -244,6 +244,107 @@ export interface RecipeQualityBody {
   note?: string;
 }
 
+export interface OpsStagingRow {
+  id: string;
+  source: string;
+  sourceRecipeId?: string | null;
+  title: string;
+  status: string;
+  cuisineTags: string[];
+  estimatedTimeMin?: number | null;
+  difficulty?: string | null;
+  mappingRate?: number | null;
+  unmappedIngredientNames: string[];
+  mappedIngredientCount: number;
+  imageUrl?: string | null;
+  sourceUrl?: string | null;
+  notes?: string | null;
+  createdAt: string;
+  promotedRecipeId?: string | null;
+}
+
+export type OpsStagingDetail = OpsStagingRow & {
+  instructionsSummary?: string | null;
+  /** Structured cooking steps. Shape is source-dependent (e.g. `{ text, index }` for Wikibooks); kept open so the contract isn't a lie. */
+  instructionsSteps: unknown[];
+  rawPayload?: unknown;
+};
+
+export interface OpsStagingFacetSource {
+  source: string;
+  count: number;
+}
+
+export interface OpsStagingFacetStatus {
+  status: string;
+  count: number;
+}
+
+export interface OpsStagingFacets {
+  sources: OpsStagingFacetSource[];
+  statuses: OpsStagingFacetStatus[];
+}
+
+export interface OpsStagingListResponse {
+  rows: OpsStagingRow[];
+  total: number;
+  page: number;
+  limit: number;
+  facets: OpsStagingFacets;
+}
+
+export interface OpsStagingPatchBody {
+  title?: string;
+  requiredIngredientIds?: string[];
+  unmappedIngredientNames?: string[];
+  estimatedTimeMin?: number;
+  difficulty?: string;
+  notes?: string;
+}
+
+export interface OpsStagingDecisionBody {
+  note?: string;
+}
+
+export interface OpsStagingPromoteResponse {
+  ok: boolean;
+  recipeId: string;
+}
+
+export interface OpsStagingRemapBody {
+  source?: string;
+  onlyNeedsReview?: boolean;
+}
+
+export interface OpsStagingRemapResponse {
+  ok: boolean;
+  scanned: number;
+  touched: number;
+  newlyMappedIngredients: number;
+  promotedToReady: number;
+}
+
+export type OpsStagingReextractBodySource =
+  (typeof OpsStagingReextractBodySource)[keyof typeof OpsStagingReextractBodySource];
+
+export const OpsStagingReextractBodySource = {
+  wikibooks: "wikibooks",
+} as const;
+
+export interface OpsStagingReextractBody {
+  source: OpsStagingReextractBodySource;
+  onlyNeedsReview?: boolean;
+}
+
+export interface OpsStagingReextractResponse {
+  ok: boolean;
+  scanned: number;
+  touched: number;
+  errors: number;
+  mappedDelta: number;
+  promotedToReady: number;
+}
+
 export interface OpsUserRecipeRow {
   id: string;
   userId?: string;
@@ -527,6 +628,41 @@ export type GetOpsRecipeReportsParams = {
   page?: number;
   limit?: number;
 };
+
+export type ListOpsStagingParams = {
+  status?: ListOpsStagingStatus;
+  source?: string;
+  q?: string;
+  page?: number;
+  /**
+   * @minimum 1
+   * @maximum 100
+   */
+  limit?: number;
+  sort?: string;
+  dir?: ListOpsStagingDir;
+};
+
+export type ListOpsStagingStatus =
+  (typeof ListOpsStagingStatus)[keyof typeof ListOpsStagingStatus];
+
+export const ListOpsStagingStatus = {
+  pending: "pending",
+  all: "all",
+  imported: "imported",
+  ready: "ready",
+  needs_review: "needs_review",
+  promoted: "promoted",
+  rejected: "rejected",
+} as const;
+
+export type ListOpsStagingDir =
+  (typeof ListOpsStagingDir)[keyof typeof ListOpsStagingDir];
+
+export const ListOpsStagingDir = {
+  asc: "asc",
+  desc: "desc",
+} as const;
 
 export type GetOpsModerationParams = {
   contentType?: string;

@@ -34,6 +34,7 @@ import type {
   GetOpsUserCreatedRecipesParams,
   GetOpsUsersParams,
   HealthStatus,
+  ListOpsStagingParams,
   ModerationDecisionBody,
   OkResponse,
   OpsAdminUser,
@@ -53,6 +54,15 @@ import type {
   OpsProposalListResponse,
   OpsRecipeListResponse,
   OpsRecipeReportListResponse,
+  OpsStagingDecisionBody,
+  OpsStagingDetail,
+  OpsStagingListResponse,
+  OpsStagingPatchBody,
+  OpsStagingPromoteResponse,
+  OpsStagingReextractBody,
+  OpsStagingReextractResponse,
+  OpsStagingRemapBody,
+  OpsStagingRemapResponse,
   OpsSystemHealthResponse,
   OpsUnknownBarcodesResponse,
   OpsUserDetail,
@@ -1786,6 +1796,633 @@ export function useGetOpsRecipeReports<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary List recipe-staging rows
+ */
+export const getListOpsStagingUrl = (params?: ListOpsStagingParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/ops/recipes/staging?${stringifiedParams}`
+    : `/api/ops/recipes/staging`;
+};
+
+export const listOpsStaging = async (
+  params?: ListOpsStagingParams,
+  options?: RequestInit,
+): Promise<OpsStagingListResponse> => {
+  return customFetch<OpsStagingListResponse>(getListOpsStagingUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListOpsStagingQueryKey = (params?: ListOpsStagingParams) => {
+  return [`/api/ops/recipes/staging`, ...(params ? [params] : [])] as const;
+};
+
+export const getListOpsStagingQueryOptions = <
+  TData = Awaited<ReturnType<typeof listOpsStaging>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListOpsStagingParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listOpsStaging>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListOpsStagingQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listOpsStaging>>> = ({
+    signal,
+  }) => listOpsStaging(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listOpsStaging>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListOpsStagingQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listOpsStaging>>
+>;
+export type ListOpsStagingQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List recipe-staging rows
+ */
+
+export function useListOpsStaging<
+  TData = Awaited<ReturnType<typeof listOpsStaging>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListOpsStagingParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listOpsStaging>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListOpsStagingQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Fetch a staging row in detail
+ */
+export const getGetOpsStagingDetailUrl = (stagingId: string) => {
+  return `/api/ops/recipes/staging/${stagingId}`;
+};
+
+export const getOpsStagingDetail = async (
+  stagingId: string,
+  options?: RequestInit,
+): Promise<OpsStagingDetail> => {
+  return customFetch<OpsStagingDetail>(getGetOpsStagingDetailUrl(stagingId), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetOpsStagingDetailQueryKey = (stagingId: string) => {
+  return [`/api/ops/recipes/staging/${stagingId}`] as const;
+};
+
+export const getGetOpsStagingDetailQueryOptions = <
+  TData = Awaited<ReturnType<typeof getOpsStagingDetail>>,
+  TError = ErrorType<void>,
+>(
+  stagingId: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getOpsStagingDetail>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetOpsStagingDetailQueryKey(stagingId);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getOpsStagingDetail>>
+  > = ({ signal }) =>
+    getOpsStagingDetail(stagingId, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!stagingId,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getOpsStagingDetail>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetOpsStagingDetailQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getOpsStagingDetail>>
+>;
+export type GetOpsStagingDetailQueryError = ErrorType<void>;
+
+/**
+ * @summary Fetch a staging row in detail
+ */
+
+export function useGetOpsStagingDetail<
+  TData = Awaited<ReturnType<typeof getOpsStagingDetail>>,
+  TError = ErrorType<void>,
+>(
+  stagingId: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getOpsStagingDetail>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetOpsStagingDetailQueryOptions(stagingId, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Edit a staging row (title, ingredients, etc.)
+ */
+export const getUpdateOpsStagingUrl = (stagingId: string) => {
+  return `/api/ops/recipes/staging/${stagingId}`;
+};
+
+export const updateOpsStaging = async (
+  stagingId: string,
+  opsStagingPatchBody: OpsStagingPatchBody,
+  options?: RequestInit,
+): Promise<OkResponse> => {
+  return customFetch<OkResponse>(getUpdateOpsStagingUrl(stagingId), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(opsStagingPatchBody),
+  });
+};
+
+export const getUpdateOpsStagingMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateOpsStaging>>,
+    TError,
+    { stagingId: string; data: BodyType<OpsStagingPatchBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateOpsStaging>>,
+  TError,
+  { stagingId: string; data: BodyType<OpsStagingPatchBody> },
+  TContext
+> => {
+  const mutationKey = ["updateOpsStaging"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateOpsStaging>>,
+    { stagingId: string; data: BodyType<OpsStagingPatchBody> }
+  > = (props) => {
+    const { stagingId, data } = props ?? {};
+
+    return updateOpsStaging(stagingId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateOpsStagingMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateOpsStaging>>
+>;
+export type UpdateOpsStagingMutationBody = BodyType<OpsStagingPatchBody>;
+export type UpdateOpsStagingMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Edit a staging row (title, ingredients, etc.)
+ */
+export const useUpdateOpsStaging = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateOpsStaging>>,
+    TError,
+    { stagingId: string; data: BodyType<OpsStagingPatchBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateOpsStaging>>,
+  TError,
+  { stagingId: string; data: BodyType<OpsStagingPatchBody> },
+  TContext
+> => {
+  return useMutation(getUpdateOpsStagingMutationOptions(options));
+};
+
+/**
+ * @summary Promote a staging row into the live recipes catalog
+ */
+export const getPromoteOpsStagingUrl = (stagingId: string) => {
+  return `/api/ops/recipes/staging/${stagingId}/promote`;
+};
+
+export const promoteOpsStaging = async (
+  stagingId: string,
+  opsStagingDecisionBody?: OpsStagingDecisionBody,
+  options?: RequestInit,
+): Promise<OpsStagingPromoteResponse> => {
+  return customFetch<OpsStagingPromoteResponse>(
+    getPromoteOpsStagingUrl(stagingId),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(opsStagingDecisionBody),
+    },
+  );
+};
+
+export const getPromoteOpsStagingMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof promoteOpsStaging>>,
+    TError,
+    { stagingId: string; data: BodyType<OpsStagingDecisionBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof promoteOpsStaging>>,
+  TError,
+  { stagingId: string; data: BodyType<OpsStagingDecisionBody> },
+  TContext
+> => {
+  const mutationKey = ["promoteOpsStaging"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof promoteOpsStaging>>,
+    { stagingId: string; data: BodyType<OpsStagingDecisionBody> }
+  > = (props) => {
+    const { stagingId, data } = props ?? {};
+
+    return promoteOpsStaging(stagingId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PromoteOpsStagingMutationResult = NonNullable<
+  Awaited<ReturnType<typeof promoteOpsStaging>>
+>;
+export type PromoteOpsStagingMutationBody = BodyType<OpsStagingDecisionBody>;
+export type PromoteOpsStagingMutationError = ErrorType<void>;
+
+/**
+ * @summary Promote a staging row into the live recipes catalog
+ */
+export const usePromoteOpsStaging = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof promoteOpsStaging>>,
+    TError,
+    { stagingId: string; data: BodyType<OpsStagingDecisionBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof promoteOpsStaging>>,
+  TError,
+  { stagingId: string; data: BodyType<OpsStagingDecisionBody> },
+  TContext
+> => {
+  return useMutation(getPromoteOpsStagingMutationOptions(options));
+};
+
+/**
+ * @summary Reject a staging row
+ */
+export const getRejectOpsStagingUrl = (stagingId: string) => {
+  return `/api/ops/recipes/staging/${stagingId}/reject`;
+};
+
+export const rejectOpsStaging = async (
+  stagingId: string,
+  opsStagingDecisionBody?: OpsStagingDecisionBody,
+  options?: RequestInit,
+): Promise<OkResponse> => {
+  return customFetch<OkResponse>(getRejectOpsStagingUrl(stagingId), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(opsStagingDecisionBody),
+  });
+};
+
+export const getRejectOpsStagingMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof rejectOpsStaging>>,
+    TError,
+    { stagingId: string; data: BodyType<OpsStagingDecisionBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof rejectOpsStaging>>,
+  TError,
+  { stagingId: string; data: BodyType<OpsStagingDecisionBody> },
+  TContext
+> => {
+  const mutationKey = ["rejectOpsStaging"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof rejectOpsStaging>>,
+    { stagingId: string; data: BodyType<OpsStagingDecisionBody> }
+  > = (props) => {
+    const { stagingId, data } = props ?? {};
+
+    return rejectOpsStaging(stagingId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RejectOpsStagingMutationResult = NonNullable<
+  Awaited<ReturnType<typeof rejectOpsStaging>>
+>;
+export type RejectOpsStagingMutationBody = BodyType<OpsStagingDecisionBody>;
+export type RejectOpsStagingMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Reject a staging row
+ */
+export const useRejectOpsStaging = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof rejectOpsStaging>>,
+    TError,
+    { stagingId: string; data: BodyType<OpsStagingDecisionBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof rejectOpsStaging>>,
+  TError,
+  { stagingId: string; data: BodyType<OpsStagingDecisionBody> },
+  TContext
+> => {
+  return useMutation(getRejectOpsStagingMutationOptions(options));
+};
+
+/**
+ * @summary Re-run ingredient mapping over imported / needs_review rows
+ */
+export const getRemapOpsStagingIngredientsUrl = () => {
+  return `/api/ops/recipes/staging/remap`;
+};
+
+export const remapOpsStagingIngredients = async (
+  opsStagingRemapBody?: OpsStagingRemapBody,
+  options?: RequestInit,
+): Promise<OpsStagingRemapResponse> => {
+  return customFetch<OpsStagingRemapResponse>(
+    getRemapOpsStagingIngredientsUrl(),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(opsStagingRemapBody),
+    },
+  );
+};
+
+export const getRemapOpsStagingIngredientsMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof remapOpsStagingIngredients>>,
+    TError,
+    { data: BodyType<OpsStagingRemapBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof remapOpsStagingIngredients>>,
+  TError,
+  { data: BodyType<OpsStagingRemapBody> },
+  TContext
+> => {
+  const mutationKey = ["remapOpsStagingIngredients"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof remapOpsStagingIngredients>>,
+    { data: BodyType<OpsStagingRemapBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return remapOpsStagingIngredients(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RemapOpsStagingIngredientsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof remapOpsStagingIngredients>>
+>;
+export type RemapOpsStagingIngredientsMutationBody =
+  BodyType<OpsStagingRemapBody>;
+export type RemapOpsStagingIngredientsMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Re-run ingredient mapping over imported / needs_review rows
+ */
+export const useRemapOpsStagingIngredients = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof remapOpsStagingIngredients>>,
+    TError,
+    { data: BodyType<OpsStagingRemapBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof remapOpsStagingIngredients>>,
+  TError,
+  { data: BodyType<OpsStagingRemapBody> },
+  TContext
+> => {
+  return useMutation(getRemapOpsStagingIngredientsMutationOptions(options));
+};
+
+/**
+ * @summary Re-fetch wikitext and re-run structured ingredient extraction (wikibooks only)
+ */
+export const getReextractOpsStagingIngredientsUrl = () => {
+  return `/api/ops/recipes/staging/reextract`;
+};
+
+export const reextractOpsStagingIngredients = async (
+  opsStagingReextractBody: OpsStagingReextractBody,
+  options?: RequestInit,
+): Promise<OpsStagingReextractResponse> => {
+  return customFetch<OpsStagingReextractResponse>(
+    getReextractOpsStagingIngredientsUrl(),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(opsStagingReextractBody),
+    },
+  );
+};
+
+export const getReextractOpsStagingIngredientsMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof reextractOpsStagingIngredients>>,
+    TError,
+    { data: BodyType<OpsStagingReextractBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof reextractOpsStagingIngredients>>,
+  TError,
+  { data: BodyType<OpsStagingReextractBody> },
+  TContext
+> => {
+  const mutationKey = ["reextractOpsStagingIngredients"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof reextractOpsStagingIngredients>>,
+    { data: BodyType<OpsStagingReextractBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return reextractOpsStagingIngredients(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ReextractOpsStagingIngredientsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof reextractOpsStagingIngredients>>
+>;
+export type ReextractOpsStagingIngredientsMutationBody =
+  BodyType<OpsStagingReextractBody>;
+export type ReextractOpsStagingIngredientsMutationError = ErrorType<void>;
+
+/**
+ * @summary Re-fetch wikitext and re-run structured ingredient extraction (wikibooks only)
+ */
+export const useReextractOpsStagingIngredients = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof reextractOpsStagingIngredients>>,
+    TError,
+    { data: BodyType<OpsStagingReextractBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof reextractOpsStagingIngredients>>,
+  TError,
+  { data: BodyType<OpsStagingReextractBody> },
+  TContext
+> => {
+  return useMutation(getReextractOpsStagingIngredientsMutationOptions(options));
+};
 
 /**
  * @summary List moderation queue items

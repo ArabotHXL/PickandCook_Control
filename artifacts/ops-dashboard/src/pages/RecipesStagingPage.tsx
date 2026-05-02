@@ -1,7 +1,20 @@
 import { useEffect, useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { apiFetch } from "@/lib/query-client";
+import {
+  useListOpsStaging,
+  useGetOpsStagingDetail,
+  usePromoteOpsStaging,
+  useRejectOpsStaging,
+  useRemapOpsStagingIngredients,
+  useReextractOpsStagingIngredients,
+  getListOpsStagingQueryKey,
+  type OpsStagingRow,
+  type OpsStagingDetail,
+  type ListOpsStagingDir,
+  type ListOpsStagingStatus,
+  OpsStagingReextractBodySource,
+} from "@workspace/api-client-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -18,42 +31,6 @@ import {
   Wand2,
 } from "lucide-react";
 
-interface StagingRow {
-  id: string;
-  source: string;
-  sourceRecipeId: string;
-  title: string;
-  status: string;
-  cuisineTags: string[];
-  estimatedTimeMin: number | null;
-  difficulty: string | null;
-  mappingRate: number | null;
-  unmappedIngredientNames: string[];
-  mappedIngredientCount: number;
-  imageUrl: string | null;
-  sourceUrl: string | null;
-  notes: string | null;
-  createdAt: string;
-  promotedRecipeId: string | null;
-}
-
-interface StagingDetail extends StagingRow {
-  instructionsSummary: string | null;
-  instructionsSteps: string[];
-  rawPayload: unknown;
-}
-
-interface StagingResponse {
-  rows: StagingRow[];
-  total: number;
-  page: number;
-  limit: number;
-  facets: {
-    sources: { source: string; count: number }[];
-    statuses: { status: string; count: number }[];
-  };
-}
-
 const STATUS_BADGE: Record<string, string> = {
   imported: "bg-blue-100 text-blue-700",
   ready: "bg-emerald-100 text-emerald-700",
@@ -62,7 +39,7 @@ const STATUS_BADGE: Record<string, string> = {
   rejected: "bg-destructive/10 text-destructive",
 };
 
-function MappingPill({ rate }: { rate: number | null }) {
+function MappingPill({ rate }: { rate: number | null | undefined }) {
   if (rate == null) return <span className="text-muted-foreground text-xs">—</span>;
   const pct = Math.round(rate * 100);
   const color =
@@ -92,50 +69,52 @@ function StagingDetailDrawer({
   const [note, setNote] = useState("");
   const [showAllUnmapped, setShowAllUnmapped] = useState(false);
 
-  const detail = useQuery<StagingDetail>({
-    queryKey: ["ops", "staging", stagingId],
-    queryFn: () => apiFetch(`/api/ops/recipes/staging/${stagingId}`).then((r) => r.json()),
-    enabled: !!stagingId,
-  });
+  // Orval already sets `enabled: !!stagingId` and a stable detail query key
+  // (`/api/ops/recipes/staging/{id}`); we don't override either, so the next
+  // slice can copy this pattern verbatim without inventing key conventions.
+  const detail = useGetOpsStagingDetail(stagingId ?? "");
 
   // Reset the "show all" toggle whenever a different row is opened.
   useEffect(() => {
     setShowAllUnmapped(false);
   }, [stagingId]);
 
-  const promote = useMutation({
-    mutationFn: () =>
-      apiFetch(`/api/ops/recipes/staging/${stagingId}/promote`, {
-        method: "POST",
-        body: JSON.stringify({ note: note || undefined }),
-      }).then((r) => r.json()),
-    onSuccess: (data) => {
-      toast({ title: "Promoted", description: `Recipe id ${data.recipeId?.slice(0, 8)}…` });
-      qc.invalidateQueries({ queryKey: ["ops", "staging"] });
-      onAfterAction();
-      onClose();
+  const invalidateLists = () => {
+    qc.invalidateQueries({ queryKey: getListOpsStagingQueryKey().slice(0, 1) });
+  };
+
+  const promote = usePromoteOpsStaging({
+    mutation: {
+      onSuccess: (data) => {
+        toast({
+          title: "Promoted",
+          description: `Recipe id ${data.recipeId.slice(0, 8)}…`,
+        });
+        invalidateLists();
+        onAfterAction();
+        onClose();
+      },
+      onError: (e: Error) =>
+        toast({ title: "Promote failed", description: e.message, variant: "destructive" }),
     },
-    onError: (e: Error) => toast({ title: "Promote failed", description: e.message, variant: "destructive" }),
   });
 
-  const reject = useMutation({
-    mutationFn: () =>
-      apiFetch(`/api/ops/recipes/staging/${stagingId}/reject`, {
-        method: "POST",
-        body: JSON.stringify({ note: note || undefined }),
-      }).then((r) => r.json()),
-    onSuccess: () => {
-      toast({ title: "Rejected" });
-      qc.invalidateQueries({ queryKey: ["ops", "staging"] });
-      onAfterAction();
-      onClose();
+  const reject = useRejectOpsStaging({
+    mutation: {
+      onSuccess: () => {
+        toast({ title: "Rejected" });
+        invalidateLists();
+        onAfterAction();
+        onClose();
+      },
+      onError: (e: Error) =>
+        toast({ title: "Reject failed", description: e.message, variant: "destructive" }),
     },
-    onError: (e: Error) => toast({ title: "Reject failed", description: e.message, variant: "destructive" }),
   });
 
   if (!stagingId) return null;
 
-  const d = detail.data;
+  const d = detail.data as OpsStagingDetail | undefined;
   const isFinal = d ? ["promoted", "rejected"].includes(d.status) : true;
 
   return (
@@ -183,7 +162,7 @@ function StagingDetailDrawer({
 
             <div className="p-6 space-y-5">
               {d.imageUrl && (
-                <img src={d.imageUrl} alt="" className="w-full max-h-56 object-cover rounded-md border border-border" />
+                <img src={d.imageUrl} alt={d.title} className="w-full max-h-56 object-cover rounded-md border border-border" />
               )}
 
               <div className="grid grid-cols-3 gap-3 text-sm">
@@ -284,7 +263,7 @@ function StagingDetailDrawer({
                     <button
                       onClick={() => {
                         if (window.confirm(`Promote "${d.title}" into the live recipes catalog? This cannot be undone from the UI.`)) {
-                          promote.mutate();
+                          promote.mutate({ stagingId, data: { note: note || undefined } });
                         }
                       }}
                       disabled={promote.isPending}
@@ -296,7 +275,7 @@ function StagingDetailDrawer({
                     <button
                       onClick={() => {
                         if (window.confirm(`Reject "${d.title}"? It will be hidden from the staging queue.`)) {
-                          reject.mutate();
+                          reject.mutate({ stagingId, data: { note: note || undefined } });
                         }
                       }}
                       disabled={reject.isPending}
@@ -326,12 +305,17 @@ export function RecipesStagingPage() {
   const { toast } = useToast();
   const qc = useQueryClient();
 
-  const list = useQuery<StagingResponse>({
-    queryKey: ["ops", "staging", status, source, q, page, sort.col, sort.dir],
-    queryFn: () =>
-      apiFetch(
-        `/api/ops/recipes/staging?status=${encodeURIComponent(status)}&source=${encodeURIComponent(source)}&q=${encodeURIComponent(q)}&page=${page}&limit=50&sort=${sort.col}&dir=${sort.dir}`
-      ).then((r) => r.json()),
+  const list = useListOpsStaging({
+    // `status` is a string union in the spec; cast at the boundary so the
+    // filter chip handler stays a plain string (it always picks from the
+    // closed list of chip values defined below).
+    status: status as ListOpsStagingStatus,
+    source: source || undefined,
+    q: q || undefined,
+    page,
+    limit: 50,
+    sort: sort.col,
+    dir: sort.dir as ListOpsStagingDir,
   });
 
   const onSort = (s: SortState) => {
@@ -339,42 +323,41 @@ export function RecipesStagingPage() {
     setPage(1);
   };
 
-  const remap = useMutation({
-    mutationFn: (body: { source?: string; onlyNeedsReview?: boolean }) =>
-      apiFetch(`/api/ops/recipes/staging/remap`, {
-        method: "POST",
-        body: JSON.stringify(body),
-      }).then((r) => r.json()),
-    onSuccess: (d) => {
-      toast({
-        title: "Re-mapped staging rows",
-        description: `Scanned ${d.scanned}, updated ${d.touched}, +${d.newlyMappedIngredients} ingredients mapped, ${d.promotedToReady} now ready.`,
-      });
-      qc.invalidateQueries({ queryKey: ["ops", "staging"] });
+  const invalidateLists = () => {
+    qc.invalidateQueries({ queryKey: getListOpsStagingQueryKey().slice(0, 1) });
+  };
+
+  const remap = useRemapOpsStagingIngredients({
+    mutation: {
+      onSuccess: (d) => {
+        toast({
+          title: "Re-mapped staging rows",
+          description: `Scanned ${d.scanned}, updated ${d.touched}, +${d.newlyMappedIngredients} ingredients mapped, ${d.promotedToReady} now ready.`,
+        });
+        invalidateLists();
+      },
+      onError: (e: Error) =>
+        toast({ title: "Re-map failed", description: e.message, variant: "destructive" }),
     },
-    onError: (e: Error) =>
-      toast({ title: "Re-map failed", description: e.message, variant: "destructive" }),
   });
 
-  const reextract = useMutation({
-    mutationFn: () =>
-      apiFetch(`/api/ops/recipes/staging/reextract`, {
-        method: "POST",
-        body: JSON.stringify({ source: "wikibooks" }),
-      }).then((r) => r.json()),
-    onSuccess: (d) => {
-      toast({
-        title: "Re-extracted wikibooks rows",
-        description: `Scanned ${d.scanned}, updated ${d.touched}, ${d.errors} errors, ${d.promotedToReady} now ready (Δ ${d.mappedDelta >= 0 ? "+" : ""}${d.mappedDelta} ingredients).`,
-      });
-      qc.invalidateQueries({ queryKey: ["ops", "staging"] });
+  const reextract = useReextractOpsStagingIngredients({
+    mutation: {
+      onSuccess: (d) => {
+        toast({
+          title: "Re-extracted wikibooks rows",
+          description: `Scanned ${d.scanned}, updated ${d.touched}, ${d.errors} errors, ${d.promotedToReady} now ready (Δ ${d.mappedDelta >= 0 ? "+" : ""}${d.mappedDelta} ingredients).`,
+        });
+        invalidateLists();
+      },
+      onError: (e: Error) =>
+        toast({ title: "Re-extract failed", description: e.message, variant: "destructive" }),
     },
-    onError: (e: Error) =>
-      toast({ title: "Re-extract failed", description: e.message, variant: "destructive" }),
   });
 
   const totalPages = Math.ceil((list.data?.total ?? 0) / 50);
   const facets = list.data?.facets;
+  const rows: OpsStagingRow[] = list.data?.rows ?? [];
 
   return (
     <div>
@@ -385,7 +368,11 @@ export function RecipesStagingPage() {
           <div className="flex items-center gap-2">
             {source === "wikibooks" && (
               <button
-                onClick={() => reextract.mutate()}
+                onClick={() =>
+                  reextract.mutate({
+                    data: { source: OpsStagingReextractBodySource.wikibooks },
+                  })
+                }
                 disabled={reextract.isPending}
                 data-testid="button-reextract-wikibooks"
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium border border-input bg-background hover:bg-muted disabled:opacity-50"
@@ -396,7 +383,9 @@ export function RecipesStagingPage() {
               </button>
             )}
             <button
-              onClick={() => remap.mutate({ source: source || undefined })}
+              onClick={() =>
+                remap.mutate({ data: { source: source || undefined } })
+              }
               disabled={remap.isPending}
               data-testid="button-remap"
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium border border-input bg-background hover:bg-muted disabled:opacity-50"
@@ -498,14 +487,14 @@ export function RecipesStagingPage() {
                     ))}
                   </tr>
                 ))
-              ) : (list.data?.rows ?? []).length === 0 ? (
+              ) : rows.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-4 py-12 text-center text-muted-foreground">
                     Nothing in {status}
                   </td>
                 </tr>
               ) : (
-                (list.data?.rows ?? []).map((r) => (
+                rows.map((r) => (
                   <tr
                     key={r.id}
                     onClick={() => setOpenId(r.id)}
@@ -560,7 +549,7 @@ export function RecipesStagingPage() {
               </button>
               <button
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={page >= totalPages}
+                disabled={page === totalPages}
                 className="p-1.5 rounded border border-border hover:bg-muted disabled:opacity-40"
               >
                 <ChevronRight className="w-4 h-4" />
