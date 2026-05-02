@@ -50,7 +50,7 @@ import {
 import { listAuditLog } from "./auditLog.js";
 import { getAiUsageSummary, listAiInteractions } from "./aiUsage.js";
 import { getAiAlerts, setAiCostThreshold } from "./aiAlerts.js";
-import { listCookSessions, listPantryDeductionReviews } from "./cookSessions.js";
+import { listCookSessions, listItemizedDeductions, listPantryDeductionReviews } from "./cookSessions.js";
 import { listReceipts, getReceiptDetail } from "./receipts.js";
 import { listHouseholds, getHouseholdMembers } from "./households.js";
 import { getSearchSummary, getRecsysSummary } from "./searchRecsys.js";
@@ -156,6 +156,7 @@ export function registerOpsRoutes(app: Express): void {
 
   // ── Cook Sessions ─────────────────────────────────────────────────────────
   app.get("/api/ops/cook-sessions", requireAdmin, listCookSessions);
+  app.get("/api/ops/cook-sessions/itemized", requireAdmin, listItemizedDeductions);
   app.get("/api/ops/cook-sessions/deduction-reviews", requireAdmin, listPantryDeductionReviews);
 
   // ── Receipts ──────────────────────────────────────────────────────────────

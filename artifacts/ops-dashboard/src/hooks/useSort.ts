@@ -8,12 +8,12 @@ import type { SortState } from "@/components/SortableHeader";
  * Returns `qs` — the `&sort=…&dir=…` suffix (empty string when null) —
  * to splice into a query URL.
  */
-export function useSort(): {
+export function useSort(initial: SortState | null = null): {
   sort: SortState | null;
   setSort: (next: SortState | null) => void;
   qs: string;
 } {
-  const [sort, setSort] = useState<SortState | null>(null);
+  const [sort, setSort] = useState<SortState | null>(initial);
   const update = useCallback((next: SortState | null) => setSort(next), []);
   const qs = sort ? `&sort=${encodeURIComponent(sort.col)}&dir=${sort.dir}` : "";
   return { sort, setSort: update, qs };

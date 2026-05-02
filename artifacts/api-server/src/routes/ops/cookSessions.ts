@@ -151,6 +151,214 @@ export async function listCookSessions(req: Request, res: Response): Promise<voi
   });
 }
 
+// ---------------------------------------------------------------------------
+// Itemized analysis: aggregates pantry-deduction items per ingredient across
+// all reviews in a time window. Tells ops which ingredients users frequently
+// skip / adjust / hit near-expiry on, plus volumes deducted.
+// ---------------------------------------------------------------------------
+
+export const ITEMIZED_SORT_COLUMNS: Record<string, string> = {
+  ingredientName: "ingredient_name",
+  suggestedCount: "suggested_count",
+  confirmedCount: "confirmed_count",
+  skippedCount: "skipped_count",
+  adjustedCount: "adjusted_count",
+  skipRate: "skip_rate",
+  adjustRate: "adjust_rate",
+  nearExpiryCount: "near_expiry_count",
+  suggestedQtySum: "suggested_qty_sum",
+  deductedQtySum: "deducted_qty_sum",
+};
+
+export const SINCE_WINDOWS: Record<string, string> = {
+  "7d": "7 days",
+  "30d": "30 days",
+  "90d": "90 days",
+  all: "100 years",
+};
+
+/**
+ * Pure helper: resolves an itemized-analysis sort key + direction into a
+ * fully-formed `ORDER BY ...` clause. Both inputs are validated against
+ * allowlists, so the returned string is safe to splice into raw SQL.
+ * Falls back to `suggested_count DESC` for unknown keys.
+ */
+export function resolveItemizedOrderBy(sortKey: unknown, dir: unknown): string {
+  const col =
+    (typeof sortKey === "string" && ITEMIZED_SORT_COLUMNS[sortKey]) ||
+    ITEMIZED_SORT_COLUMNS.suggestedCount;
+  const direction = dir === "asc" ? "ASC" : "DESC";
+  return `ORDER BY ${col} ${direction} NULLS LAST, ingredient_name ASC`;
+}
+
+export function resolveSinceInterval(sinceKey: unknown): string {
+  return (typeof sinceKey === "string" && SINCE_WINDOWS[sinceKey]) || SINCE_WINDOWS["30d"];
+}
+
+export async function listItemizedDeductions(req: Request, res: Response): Promise<void> {
+  const sinceKey = (req.query.since as string) ?? "30d";
+  const interval = resolveSinceInterval(sinceKey);
+  const q = ((req.query.q as string) ?? "").trim();
+  const page = parsePage(req.query.page);
+  const limit = parseLimit(req.query.limit, { def: 50, max: 200 });
+  const offset = (page - 1) * limit;
+
+  const orderBy = resolveItemizedOrderBy(req.query.sort, req.query.dir);
+
+  // CTE: explode each items column into rows tagged by bucket. Aggregating in
+  // SQL keeps this O(rows in db) instead of pulling all reviews into Node.
+  const params: unknown[] = [interval];
+  let pi = 2;
+  let qFilter = "";
+  if (q) {
+    qFilter = `WHERE ingredient_name ILIKE $${pi}`;
+    params.push(`%${q}%`);
+    pi++;
+  }
+
+  const aggSql = `
+    WITH src AS (
+      SELECT suggested_items, confirmed_items, skipped_items, adjusted_items
+        FROM pantry_deduction_reviews
+       WHERE created_at >= NOW() - $1::interval
+    ),
+    exploded AS (
+      SELECT 'suggested'::text AS bucket, item
+        FROM src, jsonb_array_elements(coalesce(suggested_items::jsonb, '[]'::jsonb)) AS item
+      UNION ALL
+      SELECT 'confirmed', item
+        FROM src, jsonb_array_elements(coalesce(confirmed_items::jsonb, '[]'::jsonb)) AS item
+      UNION ALL
+      SELECT 'skipped', item
+        FROM src, jsonb_array_elements(coalesce(skipped_items::jsonb, '[]'::jsonb)) AS item
+      UNION ALL
+      SELECT 'adjusted', item
+        FROM src, jsonb_array_elements(coalesce(adjusted_items::jsonb, '[]'::jsonb)) AS item
+    ),
+    agg AS (
+      SELECT
+        coalesce(item->>'ingredientId', '') AS ingredient_id,
+        coalesce(item->>'ingredientName', '(unnamed)') AS ingredient_name,
+        COUNT(*) FILTER (WHERE bucket = 'suggested')::int AS suggested_count,
+        COUNT(*) FILTER (WHERE bucket = 'confirmed')::int AS confirmed_count,
+        COUNT(*) FILTER (WHERE bucket = 'skipped')::int AS skipped_count,
+        COUNT(*) FILTER (WHERE bucket = 'adjusted')::int AS adjusted_count,
+        COUNT(*) FILTER (
+          WHERE bucket = 'suggested' AND (item->>'nearExpiry')::boolean
+        )::int AS near_expiry_count,
+        COALESCE(SUM(NULLIF(item->>'suggestedQty', '')::numeric)
+          FILTER (WHERE bucket = 'suggested'), 0)::float AS suggested_qty_sum,
+        COALESCE(SUM(
+          COALESCE(
+            NULLIF(item->>'finalQty', '')::numeric,
+            NULLIF(item->>'suggestedQty', '')::numeric
+          )
+        ) FILTER (WHERE bucket IN ('confirmed', 'adjusted')), 0)::float AS deducted_qty_sum,
+        MODE() WITHIN GROUP (ORDER BY item->>'suggestedUnit')
+          FILTER (WHERE bucket = 'suggested') AS most_common_unit
+      FROM exploded
+      GROUP BY 1, 2
+    ),
+    rated AS (
+      SELECT *,
+        CASE WHEN suggested_count > 0
+             THEN skipped_count::float / suggested_count
+             ELSE 0 END AS skip_rate,
+        CASE WHEN suggested_count > 0
+             THEN adjusted_count::float / suggested_count
+             ELSE 0 END AS adjust_rate
+        FROM agg
+    ),
+    filtered AS (
+      SELECT * FROM rated ${qFilter}
+    )
+    -- COUNT(*) OVER () gives total matching groups in one pass, so we never
+    -- have to re-scan + re-explode the reviews table for pagination total.
+    -- Group key is (ingredient_id, ingredient_name) — same as agg — so the
+    -- total reflects the actual rows the UI will paginate through.
+    SELECT *, COUNT(*) OVER ()::int AS total_rows
+      FROM filtered
+    ${orderBy}
+    LIMIT $${pi} OFFSET $${pi + 1}
+  `;
+
+  const rows = await query<{
+    ingredient_id: string;
+    ingredient_name: string;
+    suggested_count: number;
+    confirmed_count: number;
+    skipped_count: number;
+    adjusted_count: number;
+    near_expiry_count: number;
+    suggested_qty_sum: number;
+    deducted_qty_sum: number;
+    most_common_unit: string | null;
+    skip_rate: number;
+    adjust_rate: number;
+    total_rows: number;
+  }>(aggSql, [...params, limit, offset]);
+  const total = rows[0]?.total_rows ?? 0;
+
+  if (
+    await maybeSendExport(
+      res,
+      req.query.format,
+      `cook-sessions-itemized-${sinceKey}-${new Date().toISOString().slice(0, 10)}`,
+      rows.map((r) => ({
+        ingredientId: r.ingredient_id,
+        ingredientName: r.ingredient_name,
+        suggestedCount: r.suggested_count,
+        confirmedCount: r.confirmed_count,
+        skippedCount: r.skipped_count,
+        adjustedCount: r.adjusted_count,
+        nearExpiryCount: r.near_expiry_count,
+        skipRatePct: Math.round(r.skip_rate * 1000) / 10,
+        adjustRatePct: Math.round(r.adjust_rate * 1000) / 10,
+        suggestedQtySum: r.suggested_qty_sum,
+        deductedQtySum: r.deducted_qty_sum,
+        mostCommonUnit: r.most_common_unit ?? "",
+      })),
+      [
+        "ingredientId",
+        "ingredientName",
+        "suggestedCount",
+        "confirmedCount",
+        "skippedCount",
+        "adjustedCount",
+        "nearExpiryCount",
+        "skipRatePct",
+        "adjustRatePct",
+        "suggestedQtySum",
+        "deductedQtySum",
+        "mostCommonUnit",
+      ]
+    )
+  ) {
+    return;
+  }
+
+  res.json({
+    items: rows.map((r) => ({
+      ingredientId: r.ingredient_id,
+      ingredientName: r.ingredient_name,
+      suggestedCount: r.suggested_count,
+      confirmedCount: r.confirmed_count,
+      skippedCount: r.skipped_count,
+      adjustedCount: r.adjusted_count,
+      nearExpiryCount: r.near_expiry_count,
+      skipRate: r.skip_rate,
+      adjustRate: r.adjust_rate,
+      suggestedQtySum: r.suggested_qty_sum,
+      deductedQtySum: r.deducted_qty_sum,
+      mostCommonUnit: r.most_common_unit,
+    })),
+    total,
+    page,
+    limit,
+    since: sinceKey,
+  });
+}
+
 export async function listPantryDeductionReviews(req: Request, res: Response): Promise<void> {
   const status = (req.query.status as string) ?? "pending";
   const page = parsePage(req.query.page);
