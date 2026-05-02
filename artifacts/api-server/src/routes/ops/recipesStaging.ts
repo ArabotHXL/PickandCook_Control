@@ -58,9 +58,10 @@ function toDto(r: StagingRow) {
   };
 }
 
-// Allowed sort columns -> safe SQL expressions. Anything outside this map is
-// rejected so the `sort` query param can't be turned into SQL injection.
-const SORT_COLUMNS: Record<string, string> = {
+// Allowed sort columns -> safe SQL expressions. Anything outside this map
+// silently falls back to `createdAt` so the `sort` query param cannot be
+// turned into SQL injection.
+export const STAGING_SORT_COLUMNS: Record<string, string> = {
   title: "title",
   source: "source",
   status: "status",
@@ -68,6 +69,17 @@ const SORT_COLUMNS: Record<string, string> = {
   unmappedCount: "jsonb_array_length(coalesce(unmapped_ingredient_names, '[]'::jsonb))",
   createdAt: "created_at",
 };
+
+/** Resolve the ORDER BY clause for the staging list endpoint. Pure + testable. */
+export function resolveStagingOrderBy(
+  sortKey: string | undefined,
+  dirParam: string | undefined,
+): string {
+  const expr = STAGING_SORT_COLUMNS[sortKey ?? ""] ?? STAGING_SORT_COLUMNS.createdAt;
+  const dir = dirParam === "asc" ? "ASC" : "DESC";
+  // Stable secondary sort so equal mapping_rate / status rows don't shuffle.
+  return `${expr} ${dir} NULLS LAST, created_at DESC`;
+}
 
 export async function listStagingRecipes(req: Request, res: Response): Promise<void> {
   const status = (req.query.status as string) ?? "pending";
@@ -77,11 +89,10 @@ export async function listStagingRecipes(req: Request, res: Response): Promise<v
   const limit = parseLimit(req.query.limit, { def: 50, max: 100 });
   const offset = (page - 1) * limit;
 
-  const sortKey = (req.query.sort as string) ?? "createdAt";
-  const dir = (req.query.dir as string) === "asc" ? "ASC" : "DESC";
-  const sortExpr = SORT_COLUMNS[sortKey] ?? SORT_COLUMNS.createdAt;
-  // Stable secondary sort so equal mapping_rate / status rows don't shuffle.
-  const orderBy = `${sortExpr} ${dir} NULLS LAST, created_at DESC`;
+  const orderBy = resolveStagingOrderBy(
+    req.query.sort as string | undefined,
+    req.query.dir as string | undefined,
+  );
 
   if (!ALL_FILTERS.includes(status)) {
     res.status(400).json({ error: `status must be one of: ${ALL_FILTERS.join(", ")}` });
