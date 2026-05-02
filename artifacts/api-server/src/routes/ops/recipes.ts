@@ -3,6 +3,7 @@ import { query } from "./db.js";
 import { writeAuditLog } from "./audit.js";
 import type { AdminPayload } from "./auth.js";
 import { maybeSendExport, buildOrderBy } from "./csv.js";
+import { parseLimit, parsePage } from "./queryParams.js";
 
 function getAdminUser(req: Request): AdminPayload {
   return (req as Request & { adminUser: AdminPayload }).adminUser;
@@ -30,8 +31,8 @@ const UGC_SORTS: Record<string, string> = {
 export async function listRecipes(req: Request, res: Response): Promise<void> {
   const q = (req.query.q as string) ?? "";
   const qualityTier = req.query.qualityTier as string | undefined;
-  const page = Math.max(1, parseInt(String(req.query.page ?? "1"), 10));
-  const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit ?? "50"), 10)));
+  const page = parsePage(req.query.page);
+  const limit = parseLimit(req.query.limit, { def: 50, max: 100 });
   const offset = (page - 1) * limit;
 
   const conditions: string[] = [];
@@ -147,8 +148,8 @@ export async function setRecipeQuality(req: Request, res: Response): Promise<voi
 
 export async function listUserCreatedRecipes(req: Request, res: Response): Promise<void> {
   const submissionStatus = (req.query.submissionStatus as string) ?? "pending";
-  const page = Math.max(1, parseInt(String(req.query.page ?? "1"), 10));
-  const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit ?? "50"), 10)));
+  const page = parsePage(req.query.page);
+  const limit = parseLimit(req.query.limit, { def: 50, max: 100 });
   const offset = (page - 1) * limit;
 
   const orderBy = buildOrderBy(req.query.sort, req.query.dir, UGC_SORTS, "ur.created_at", "ur.id");
@@ -276,8 +277,8 @@ export async function decideUserRecipe(req: Request, res: Response): Promise<voi
 
 export async function listRecipeReports(req: Request, res: Response): Promise<void> {
   const status = (req.query.status as string) ?? "open";
-  const page = Math.max(1, parseInt(String(req.query.page ?? "1"), 10));
-  const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit ?? "50"), 10)));
+  const page = parsePage(req.query.page);
+  const limit = parseLimit(req.query.limit, { def: 50, max: 100 });
   const offset = (page - 1) * limit;
 
   const [reports, countRows] = await Promise.all([

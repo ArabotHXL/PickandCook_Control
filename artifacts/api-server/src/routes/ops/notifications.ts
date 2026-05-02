@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import { query } from "./db.js";
 import { buildOrderBy } from "./csv.js";
+import { parseLimit, parsePage } from "./queryParams.js";
 
 const NOTIFICATION_LOG_SORTS: Record<string, string> = {
   title: "nl.title",
@@ -27,8 +28,8 @@ export async function listNotificationTemplates(_req: Request, res: Response): P
 export async function listNotificationLog(req: Request, res: Response): Promise<void> {
   const userId = req.query.userId as string | undefined;
   const category = req.query.category as string | undefined;
-  const page = Math.max(1, parseInt(String(req.query.page ?? "1"), 10));
-  const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit ?? "50"), 10)));
+  const page = parsePage(req.query.page);
+  const limit = parseLimit(req.query.limit, { def: 50, max: 100 });
   const offset = (page - 1) * limit;
 
   const conditions: string[] = [];

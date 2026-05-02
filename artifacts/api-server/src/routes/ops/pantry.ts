@@ -3,6 +3,7 @@ import { query } from "./db.js";
 import { writeAuditLog } from "./audit.js";
 import type { AdminPayload } from "./auth.js";
 import { buildOrderBy } from "./csv.js";
+import { parseLimit, parsePage } from "./queryParams.js";
 
 function getAdminUser(req: Request): AdminPayload {
   return (req as Request & { adminUser: AdminPayload }).adminUser;
@@ -21,8 +22,8 @@ const PANTRY_SORTS: Record<string, string> = {
 export async function listPantryItems(req: Request, res: Response): Promise<void> {
   const userId = req.query.userId as string | undefined;
   const issue = req.query.issue as string | undefined;
-  const page = Math.max(1, parseInt(String(req.query.page ?? "1"), 10));
-  const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit ?? "50"), 10)));
+  const page = parsePage(req.query.page);
+  const limit = parseLimit(req.query.limit, { def: 50, max: 100 });
   const offset = (page - 1) * limit;
 
   const conditions: string[] = ["pi.deleted_at IS NULL"];

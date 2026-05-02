@@ -1,9 +1,10 @@
 import type { Request, Response } from "express";
 import { query } from "./db.js";
+import { parseLimit } from "./queryParams.js";
 
 export async function getUserTimeline(req: Request, res: Response): Promise<void> {
   const { userId } = req.params;
-  const limit = Math.min(200, Math.max(1, parseInt(String(req.query.limit ?? "100"), 10)));
+  const limit = parseLimit(req.query.limit, { def: 100, max: 200 });
 
   // Pull from BOTH event tables and merge in app-layer.
   const [richEvents, analyticsEvents] = await Promise.all([

@@ -1,10 +1,11 @@
-import express, { type Express } from "express";
+import express, { type Express, type NextFunction, type Request, type Response } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
 import router from "./routes/index";
 import storageRouter from "./routes/storage";
 import { logger } from "./lib/logger";
 import { registerOpsRoutes } from "./routes/ops/index";
+import { isHttpError } from "./lib/httpError";
 
 const app: Express = express();
 
@@ -36,5 +37,19 @@ app.use("/api", storageRouter);
 
 // Register ops dashboard routes (all prefixed /api/ops/...)
 registerOpsRoutes(app);
+
+// Global error handler — keeps client-error responses small and JSON-shaped.
+// Express checks function arity for error middleware, so the unused `_next`
+// parameter is required.
+app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
+  if (res.headersSent) return;
+  if (isHttpError(err)) {
+    req.log.warn({ err, status: err.status }, "client error");
+    res.status(err.status).json({ error: err.message });
+    return;
+  }
+  req.log.error({ err }, "unhandled error");
+  res.status(500).json({ error: "Internal server error" });
+});
 
 export default app;

@@ -46,6 +46,7 @@ Sidebar grouped into Overview, People, Inventory, Cooking, Insights, Operations.
 - **Households** — households with member count and member-detail modal (allergies, allergy groups, dislikes, dietary restrictions normalized to display strings)
 - **Analytics → Search** — top queries, zero-result rate
 - **Analytics → Recommendations** — recsys events by surface / event type / algo version
+- **System → Overview** — auto-discovers every job that has ever run (no hardcoded list); flags any job whose last successful run is older than 2 days as "stale" and any `running` job older than 1 hour as a "zombie". Shows an amber banner with one-click **Clear stuck jobs** button (POST `/api/ops/system/jobs/clear-stuck` — admin-only, audited).
 - **System → Feature Flags** — view & toggle boolean flags per scope (optimistic UI; mutation audited)
 - **CSV export** — Recipes (catalog + user-submissions tabs), Users, Cook Sessions, Receipts list endpoints accept `?format=csv`. Helper `lib/csv.ts` triggers an authenticated browser download. Backend escapes CSV cells and prefix-neutralizes `=+-@\t\r` to prevent formula injection in spreadsheets.
 
@@ -54,6 +55,14 @@ Sidebar grouped into Overview, People, Inventory, Cooking, Insights, Operations.
 - `POST /api/storage/uploads/request-url` (admin-only) returns a signed PUT URL plus a persistent `objectPath` (`/objects/<uuid>`) to save as `imageUrl`.
 - `GET /api/storage/objects/*` is public (intentional — `<img>` tags cannot send Bearer tokens; identifiers are unguessable UUIDs and the bucket only stores ops-uploaded recipe imagery).
 - Frontend helpers: `lib/upload.ts` exports `uploadImageFile(file)` (does request-url + PUT) and `resolveImageSrc(url)` which prefixes `/objects/...` with `/api/storage` for display.
+
+## Query-Param Validation
+
+All `/api/ops/*` list endpoints share `routes/ops/queryParams.ts` (`parseLimit`, `parsePage`, `parseDays`). Invalid values (`limit=abc`, `page=-1`, out-of-range `days`) throw `HttpError(400, …)` (`lib/httpError.ts`) which is caught by the global error middleware in `app.ts` and returned as `{"error":"…"}` JSON — no stack trace leaks. Add new list endpoints by importing from `queryParams.js` rather than re-implementing `parseInt(...)` patterns.
+
+## Data Pipeline (External)
+
+Worker code for `products:nightly`, `recipes:nightly`, `wikibooks:weekly`, `recipe_import`, `barcode_import`, `notification_send` etc. **does not live in this repo** (verified via `rg`). The api-server only reads `job_runs` for display; it does not schedule or execute jobs. As of 2026-05-02 those jobs have not produced a successful run in 26–57 days — investigate the external worker if dashboard "stale" warnings appear. Ops dashboard System page surfaces this state and lets admins clear zombie `running` rows.
 
 ## Auth & Login
 

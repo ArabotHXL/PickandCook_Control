@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { query } from "./db.js";
+import { parseLimit, parsePage, parseDays } from "./queryParams.js";
 
 const VIEW_EVENTS: Record<string, string[]> = {
   onboarding: [
@@ -52,8 +53,8 @@ export async function listAnalyticsEvents(req: Request, res: Response): Promise<
   const from = req.query.from as string | undefined;
   const to = req.query.to as string | undefined;
   const view = req.query.view as string | undefined;
-  const page = Math.max(1, parseInt(String(req.query.page ?? "1"), 10));
-  const limit = Math.min(200, Math.max(1, parseInt(String(req.query.limit ?? "100"), 10)));
+  const page = parsePage(req.query.page);
+  const limit = parseLimit(req.query.limit, { def: 100, max: 200 });
   const offset = (page - 1) * limit;
 
   const conditions: string[] = [];
@@ -131,7 +132,7 @@ export async function listAnalyticsEvents(req: Request, res: Response): Promise<
 }
 
 export async function getAnalyticsSummary(req: Request, res: Response): Promise<void> {
-  const days = Math.max(1, Math.min(90, parseInt(String(req.query.days ?? "7"), 10)));
+  const days = parseDays(req.query.days, { def: 7, max: 90 });
   const since = new Date(Date.now() - days * 86400_000);
 
   const [topEvents, totals] = await Promise.all([

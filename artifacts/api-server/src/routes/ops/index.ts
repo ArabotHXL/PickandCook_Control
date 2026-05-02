@@ -29,7 +29,7 @@ import {
   listNotificationTemplates,
   listNotificationLog,
 } from "./notifications.js";
-import { getSystemHealth, listJobRuns } from "./system.js";
+import { getSystemHealth, listJobRuns, clearStuckJobs } from "./system.js";
 import { listAuditLog } from "./auditLog.js";
 import { getAiUsageSummary, listAiInteractions } from "./aiUsage.js";
 import { getAiAlerts, setAiCostThreshold } from "./aiAlerts.js";
@@ -117,6 +117,7 @@ export function registerOpsRoutes(app: Express): void {
   // ── System ────────────────────────────────────────────────────────────────
   app.get("/api/ops/system/health", requireAdmin, getSystemHealth);
   app.get("/api/ops/system/jobs", requireAdmin, listJobRuns);
+  app.post("/api/ops/system/jobs/clear-stuck", requireAdmin, clearStuckJobs);
   app.get("/api/ops/system/flags", requireAdmin, listFlags);
   app.patch("/api/ops/system/flags/:scopeId", requireAdmin, updateFlag);
 

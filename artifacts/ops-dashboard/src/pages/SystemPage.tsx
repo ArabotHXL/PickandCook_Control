@@ -3,11 +3,53 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/query-client";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
-import { Activity, AlertTriangle, CheckCircle, DollarSign, ChevronLeft, ChevronRight, Flag } from "lucide-react";
+import {
+  Activity,
+  AlertTriangle,
+  CheckCircle,
+  DollarSign,
+  ChevronLeft,
+  ChevronRight,
+  Flag,
+  Clock,
+  Trash2,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 
+type Job = Record<string, unknown> | null;
+
+interface TrackedJob {
+  jobName: string;
+  latest: Job;
+  lastSuccess: Job;
+  lastSuccessAt: string | null;
+  stale: boolean;
+  staleSinceDays: number | null;
+}
+
+interface Zombie {
+  id: string;
+  jobName: string;
+  startedAt: string;
+  ageSeconds: number;
+}
+
+interface SystemHealth {
+  lastRecipeImport: Job;
+  lastBarcodeImport: Job;
+  lastNotificationJob: Job;
+  recentFailedJobs: Job[];
+  totalJobsToday: number;
+  failedJobsToday: number;
+  llmCostToday: number;
+  llmCostThisWeek: number;
+  trackedJobs: TrackedJob[];
+  zombies: Zombie[];
+  thresholds: { staleDays: number; zombieHours: number };
+}
+
 function useSystemHealth() {
-  return useQuery({
+  return useQuery<SystemHealth>({
     queryKey: ["ops", "system", "health"],
     queryFn: () => apiFetch("/api/ops/system/health").then((r) => r.json()),
     refetchInterval: 30_000,
@@ -40,6 +82,12 @@ const STATUS_BADGE: Record<string, string> = {
   running: "bg-blue-100 text-blue-700",
   pending: "bg-yellow-100 text-yellow-700",
 };
+
+function formatAge(seconds: number): string {
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
+  if (seconds < 86400) return `${(seconds / 3600).toFixed(1)}h`;
+  return `${Math.round(seconds / 86400)}d`;
+}
 
 function JobRow({ job }: { job: Record<string, unknown> }) {
   if (!job) return null;
@@ -76,15 +124,21 @@ export function SystemPage() {
   const jobsQuery = useJobRuns(jobName, jobStatus, page);
   const flagsQuery = useFlags();
 
+  const clearStuckMutation = useMutation({
+    mutationFn: () =>
+      apiFetch("/api/ops/system/jobs/clear-stuck", { method: "POST" }).then((r) => r.json()),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["ops", "system", "health"] });
+      qc.invalidateQueries({ queryKey: ["ops", "system", "jobs"] });
+    },
+  });
+
   const updateFlagMutation = useMutation({
     mutationFn: ({ scopeId, key, value }: { scopeId: string; key: string; value: unknown }) =>
       apiFetch(`/api/ops/system/flags/${scopeId}`, {
         method: "PATCH",
         body: JSON.stringify({ key, value }),
       }).then((r) => r.json()),
-    // Optimistic update so the UI reflects the new value immediately,
-    // preventing race conditions if the user clicks rapidly while the
-    // background refetch is still in flight.
     onMutate: async ({ scopeId, key, value }) => {
       await qc.cancelQueries({ queryKey: ["ops", "system", "flags"] });
       const prev = qc.getQueryData<{ scopes: Array<{ id: string; flags: Record<string, unknown> }> }>([
@@ -111,6 +165,10 @@ export function SystemPage() {
   const total = jobsQuery.data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / 50));
 
+  const trackedJobs = health?.trackedJobs ?? [];
+  const staleJobs = trackedJobs.filter((t) => t.stale);
+  const zombies = health?.zombies ?? [];
+
   return (
     <div>
       <PageHeader title="System Health" description="Job monitoring, infrastructure, and feature flags" />
@@ -129,6 +187,70 @@ export function SystemPage() {
 
         {tab === "health" && (
           <>
+            {/* Pipeline-health banner: stale data + zombie jobs */}
+            {(staleJobs.length > 0 || zombies.length > 0) && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-3">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-sm font-semibold text-amber-900">Pipeline issues detected</h3>
+                    <p className="text-xs text-amber-800 mt-0.5">
+                      Worker process appears absent. The dashboard surfaces job state — it does not run jobs.
+                    </p>
+
+                    {staleJobs.length > 0 && (
+                      <div className="mt-3">
+                        <p className="text-xs font-medium text-amber-900 mb-1">
+                          Stale data (no successful run in &gt; {health?.thresholds.staleDays} days):
+                        </p>
+                        <ul className="text-xs text-amber-800 space-y-0.5">
+                          {staleJobs.map((j) => (
+                            <li key={j.jobName} className="font-mono">
+                              • {j.jobName} —{" "}
+                              {j.staleSinceDays === null
+                                ? "never succeeded"
+                                : `last success ${j.staleSinceDays}d ago`}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {zombies.length > 0 && (
+                      <div className="mt-3 flex items-start justify-between gap-3">
+                        <div className="flex-1">
+                          <p className="text-xs font-medium text-amber-900 mb-1">
+                            Stuck jobs (running &gt; {health?.thresholds.zombieHours}h, no progress):
+                          </p>
+                          <ul className="text-xs text-amber-800 space-y-0.5">
+                            {zombies.map((z) => (
+                              <li key={z.id} className="font-mono">
+                                • {z.jobName} — running for {formatAge(z.ageSeconds)}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                        <button
+                          onClick={() => clearStuckMutation.mutate()}
+                          disabled={clearStuckMutation.isPending}
+                          className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-amber-600 text-white text-xs font-medium hover:bg-amber-700 disabled:opacity-50"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          {clearStuckMutation.isPending ? "Clearing…" : "Clear stuck jobs"}
+                        </button>
+                      </div>
+                    )}
+
+                    {clearStuckMutation.data ? (
+                      <p className="text-xs text-emerald-700 mt-2">
+                        ✓ Cleared {clearStuckMutation.data.cleared} stuck job(s).
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <StatCard label="Jobs Today" value={health?.totalJobsToday ?? 0} icon={<Activity className="w-4 h-4" />} />
               <StatCard label="Failed Today" value={health?.failedJobsToday ?? 0} icon={<AlertTriangle className="w-4 h-4" />} />
@@ -139,25 +261,35 @@ export function SystemPage() {
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
               <div className="bg-card border border-card-border rounded-lg p-5 shadow-sm">
                 <h3 className="text-sm font-semibold mb-4 flex items-center gap-2">
-                  <CheckCircle className="w-4 h-4 text-emerald-500" /> Key Jobs
+                  <CheckCircle className="w-4 h-4 text-emerald-500" /> Tracked Jobs
                 </h3>
                 {healthQuery.isLoading ? (
                   <div className="space-y-3">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-10 bg-muted rounded animate-pulse" />)}</div>
+                ) : trackedJobs.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No jobs have ever run</p>
                 ) : (
                   <div>
-                    {[
-                      { label: "Recipe Import", job: health?.lastRecipeImport },
-                      { label: "Barcode Import", job: health?.lastBarcodeImport },
-                      { label: "Notification Job", job: health?.lastNotificationJob },
-                    ].map(({ label, job }) => (
-                      <div key={label} className="flex items-center justify-between py-2.5 border-b border-border last:border-0">
-                        <p className="text-sm font-medium text-foreground">{label}</p>
-                        {job ? (
-                          <span className={cn("px-2 py-0.5 rounded text-xs font-medium", STATUS_BADGE[String(job.status)] ?? "bg-muted")}>
-                            {String(job.status)}
+                    {trackedJobs.map((tj) => (
+                      <div key={tj.jobName} className="flex items-center justify-between py-2.5 border-b border-border last:border-0 gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-foreground font-mono truncate">{tj.jobName}</p>
+                          <p className="text-xs text-muted-foreground flex items-center gap-1">
+                            <Clock className="w-3 h-3" />
+                            {tj.lastSuccessAt
+                              ? `last success ${tj.staleSinceDays}d ago`
+                              : "never succeeded"}
+                          </p>
+                        </div>
+                        {tj.latest ? (
+                          <span className={cn(
+                            "px-2 py-0.5 rounded text-xs font-medium shrink-0",
+                            STATUS_BADGE[String(tj.latest.status)] ?? "bg-muted",
+                            tj.stale && "ring-1 ring-amber-400"
+                          )}>
+                            {String(tj.latest.status)}
                           </span>
                         ) : (
-                          <span className="text-xs text-muted-foreground">Never run</span>
+                          <span className="text-xs text-muted-foreground">—</span>
                         )}
                       </div>
                     ))}
@@ -177,8 +309,8 @@ export function SystemPage() {
                     <p className="text-sm">No recent failures</p>
                   </div>
                 ) : (
-                  (health?.recentFailedJobs ?? []).map((job: Record<string, unknown>) => (
-                    <JobRow key={String(job.id)} job={job} />
+                  (health?.recentFailedJobs ?? []).map((job: Job) => (
+                    job ? <JobRow key={String(job.id)} job={job} /> : null
                   ))
                 )}
               </div>

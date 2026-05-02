@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import { query, queryOne } from "./db.js";
 import { maybeSendExport, buildOrderBy } from "./csv.js";
+import { parseLimit, parsePage } from "./queryParams.js";
 
 const RECEIPT_SORTS: Record<string, string> = {
   storeName: "rh.store_name",
@@ -17,8 +18,8 @@ const RECEIPT_SORTS: Record<string, string> = {
 export async function listReceipts(req: Request, res: Response): Promise<void> {
   const status = req.query.status as string | undefined;
   const userId = req.query.userId as string | undefined;
-  const page = Math.max(1, parseInt(String(req.query.page ?? "1"), 10));
-  const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit ?? "50"), 10)));
+  const page = parsePage(req.query.page);
+  const limit = parseLimit(req.query.limit, { def: 50, max: 100 });
   const offset = (page - 1) * limit;
 
   const conditions: string[] = [];

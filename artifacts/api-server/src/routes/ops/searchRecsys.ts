@@ -1,8 +1,9 @@
 import type { Request, Response } from "express";
 import { query } from "./db.js";
+import { parseDays } from "./queryParams.js";
 
 export async function getSearchSummary(req: Request, res: Response): Promise<void> {
-  const days = Math.max(1, Math.min(90, parseInt(String(req.query.days ?? "30"), 10)));
+  const days = parseDays(req.query.days, { def: 30, max: 90 });
   const since = new Date(Date.now() - days * 86400_000);
 
   const [byType, topQueries, zeroResultQueries, totals] = await Promise.all([
@@ -82,7 +83,7 @@ export async function getSearchSummary(req: Request, res: Response): Promise<voi
 }
 
 export async function getRecsysSummary(req: Request, res: Response): Promise<void> {
-  const days = Math.max(1, Math.min(90, parseInt(String(req.query.days ?? "30"), 10)));
+  const days = parseDays(req.query.days, { def: 30, max: 90 });
   const since = new Date(Date.now() - days * 86400_000);
 
   const [bySurface, byEvent, byAlgo, perfBySection, totals] = await Promise.all([

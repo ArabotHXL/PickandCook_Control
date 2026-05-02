@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import { query } from "./db.js";
 import { buildOrderBy } from "./csv.js";
+import { parseLimit, parsePage } from "./queryParams.js";
 
 const HOUSEHOLD_SORTS: Record<string, string> = {
   name: "h.name",
@@ -11,8 +12,8 @@ const HOUSEHOLD_SORTS: Record<string, string> = {
 };
 
 export async function listHouseholds(req: Request, res: Response): Promise<void> {
-  const page = Math.max(1, parseInt(String(req.query.page ?? "1"), 10));
-  const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit ?? "50"), 10)));
+  const page = parsePage(req.query.page);
+  const limit = parseLimit(req.query.limit, { def: 50, max: 100 });
   const offset = (page - 1) * limit;
   const orderBy = buildOrderBy(req.query.sort, req.query.dir, HOUSEHOLD_SORTS, "h.created_at", "h.id");
 

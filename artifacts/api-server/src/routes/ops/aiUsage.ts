@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { query } from "./db.js";
+import { parseLimit, parsePage } from "./queryParams.js";
 
 export async function getAiUsageSummary(_req: Request, res: Response): Promise<void> {
   const today = new Date().toISOString().slice(0, 10);
@@ -123,8 +124,8 @@ export async function listAiInteractions(req: Request, res: Response): Promise<v
   const interactionType = req.query.interactionType as string | undefined;
   const successFilter = req.query.success as string | undefined;
   const userId = req.query.userId as string | undefined;
-  const page = Math.max(1, parseInt(String(req.query.page ?? "1"), 10));
-  const limit = Math.min(200, Math.max(1, parseInt(String(req.query.limit ?? "50"), 10)));
+  const page = parsePage(req.query.page);
+  const limit = parseLimit(req.query.limit, { def: 50, max: 200 });
   const offset = (page - 1) * limit;
 
   const conditions: string[] = [];

@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import { query } from "./db.js";
 import { buildOrderBy } from "./csv.js";
+import { parseLimit, parsePage } from "./queryParams.js";
 
 const AUDIT_SORTS: Record<string, string> = {
   createdAt: "al.created_at",
@@ -13,8 +14,8 @@ export async function listAuditLog(req: Request, res: Response): Promise<void> {
   const adminUserId = req.query.adminUserId as string | undefined;
   const targetType = req.query.targetType as string | undefined;
   const actionType = req.query.actionType as string | undefined;
-  const page = Math.max(1, parseInt(String(req.query.page ?? "1"), 10));
-  const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit ?? "50"), 10)));
+  const page = parsePage(req.query.page);
+  const limit = parseLimit(req.query.limit, { def: 50, max: 100 });
   const offset = (page - 1) * limit;
 
   const conditions: string[] = [];
