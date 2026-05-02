@@ -101,12 +101,18 @@ export function Sidebar({ user, onLogout }: SidebarProps) {
             </p>
             <ul className="space-y-0.5">
               {section.items.map(({ href, icon: Icon, label }) => {
-                const active =
-                  href === "/"
-                    ? location === "/"
-                    : href === "/recipes"
-                    ? location === "/recipes" || /^\/recipes\/[^/]+$/.test(location)
-                    : location === href || location.startsWith(href + "/");
+                // Pick the most-specific matching nav item so `/recipes/staging`
+                // doesn't also light up the parent `/recipes` row.
+                const allHrefs = NAV_SECTIONS.flatMap((s) => s.items.map((i) => i.href));
+                const matchingHrefs = allHrefs.filter(
+                  (h) =>
+                    h === "/"
+                      ? location === "/"
+                      : location === h || location.startsWith(h + "/")
+                );
+                const bestMatch =
+                  matchingHrefs.sort((a, b) => b.length - a.length)[0] ?? null;
+                const active = bestMatch === href;
                 return (
                   <li key={href}>
                     <Link
