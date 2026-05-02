@@ -146,12 +146,34 @@ export async function getSystemHealth(_req: Request, res: Response): Promise<voi
   });
 }
 
+// Allowlist for /system/jobs sortable columns; unknown keys silently fall back
+// to startedAt so the `sort` query param can never inject SQL.
+export const JOB_RUNS_SORT_COLUMNS: Record<string, string> = {
+  jobName: "job_name",
+  status: "status",
+  startedAt: "started_at",
+  durationMs: "duration_ms",
+};
+
+export function resolveJobRunsOrderBy(
+  sortKey: string | undefined,
+  dirParam: string | undefined,
+): string {
+  const expr = JOB_RUNS_SORT_COLUMNS[sortKey ?? ""] ?? JOB_RUNS_SORT_COLUMNS.startedAt;
+  const dir = dirParam === "asc" ? "ASC" : "DESC";
+  return `${expr} ${dir} NULLS LAST, started_at DESC`;
+}
+
 export async function listJobRuns(req: Request, res: Response): Promise<void> {
   const jobName = req.query.jobName as string | undefined;
   const status = req.query.status as string | undefined;
   const page = parsePage(req.query.page);
   const limit = parseLimit(req.query.limit, { def: 50, max: 100 });
   const offset = (page - 1) * limit;
+  const orderBy = resolveJobRunsOrderBy(
+    req.query.sort as string | undefined,
+    req.query.dir as string | undefined,
+  );
 
   const conditions: string[] = [];
   const params: unknown[] = [];
@@ -173,7 +195,7 @@ export async function listJobRuns(req: Request, res: Response): Promise<void> {
   const [jobs, countRows] = await Promise.all([
     query<Record<string, unknown>>(
       `SELECT id, job_name, status, started_at, finished_at, duration_ms, error_message, triggered_by, summary
-       FROM job_runs ${where} ORDER BY started_at DESC LIMIT $${pi} OFFSET $${pi + 1}`,
+       FROM job_runs ${where} ORDER BY ${orderBy} LIMIT $${pi} OFFSET $${pi + 1}`,
       [...params, limit, offset]
     ),
     query<{ n: string }>(

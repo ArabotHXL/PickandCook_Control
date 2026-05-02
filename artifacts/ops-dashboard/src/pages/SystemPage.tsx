@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 import { ExternalHealthCard } from "@/components/ExternalHealthCard";
 import { AlertWebhookCard } from "@/components/AlertWebhookCard";
 import { TwoFactorCard } from "@/components/TwoFactorCard";
+import { SortableHeader, type SortState } from "@/components/SortableHeader";
 
 type Job = Record<string, unknown> | null;
 
@@ -60,11 +61,16 @@ function useSystemHealth() {
   });
 }
 
-function useJobRuns(jobName: string, status: string, page: number) {
+function useJobRuns(jobName: string, status: string, page: number, sort: SortState) {
   return useQuery({
-    queryKey: ["ops", "system", "jobs", jobName, status, page],
+    queryKey: ["ops", "system", "jobs", jobName, status, page, sort.col, sort.dir],
     queryFn: () => {
-      const params = new URLSearchParams({ page: String(page), limit: "50" });
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: "50",
+        sort: sort.col,
+        dir: sort.dir,
+      });
       if (jobName) params.set("jobName", jobName);
       if (status) params.set("status", status);
       return apiFetch(`/api/ops/system/jobs?${params.toString()}`).then((r) => r.json());
@@ -122,10 +128,15 @@ export function SystemPage() {
   const [jobName, setJobName] = useState("");
   const [jobStatus, setJobStatus] = useState("");
   const [page, setPage] = useState(1);
+  const [jobsSort, setJobsSort] = useState<SortState>({ col: "startedAt", dir: "desc" });
   const qc = useQueryClient();
 
   const healthQuery = useSystemHealth();
-  const jobsQuery = useJobRuns(jobName, jobStatus, page);
+  const jobsQuery = useJobRuns(jobName, jobStatus, page, jobsSort);
+  const onJobsSort = (s: SortState) => {
+    setJobsSort(s);
+    setPage(1);
+  };
   const flagsQuery = useFlags();
 
   const clearStuckMutation = useMutation({
@@ -378,10 +389,10 @@ export function SystemPage() {
               <table className="w-full text-sm">
                 <thead className="bg-muted/50 border-b border-border">
                   <tr>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Job</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Status</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Started</th>
-                    <th className="text-right px-4 py-3 font-medium text-muted-foreground">Duration</th>
+                    <SortableHeader col="jobName" active={jobsSort} onChange={onJobsSort} defaultDir="asc">Job</SortableHeader>
+                    <SortableHeader col="status" active={jobsSort} onChange={onJobsSort} defaultDir="asc">Status</SortableHeader>
+                    <SortableHeader col="startedAt" active={jobsSort} onChange={onJobsSort}>Started</SortableHeader>
+                    <SortableHeader col="durationMs" active={jobsSort} onChange={onJobsSort} align="right">Duration</SortableHeader>
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground">Error</th>
                   </tr>
                 </thead>
