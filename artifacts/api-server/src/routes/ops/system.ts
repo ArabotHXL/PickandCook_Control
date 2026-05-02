@@ -395,12 +395,51 @@ export async function triggerJob(req: Request, res: Response): Promise<void> {
   res.status(202).json({ accepted: true, jobName });
 }
 
+// In-memory cache for the external-health probe response. Without this,
+// every /system page load fan-outs to all downstreams and OpenFoodFacts in
+// particular rate-limits us (429). 30s is plenty fresh for a status panel
+// and keeps us well under any reasonable rate limit even with multiple
+// admins refreshing.
+//
+// `externalHealthInflight` coalesces concurrent cache-miss callers onto a
+// single underlying probe. Without it, N admins refreshing during a miss
+// would each fire their own fan-out (the classic cache-stampede problem)
+// and partially defeat the rate-limit protection we put this here for.
+const EXTERNAL_HEALTH_TTL_MS = 30_000;
+type ExternalHealthPayload = { checkedAt: string; targets: unknown[] };
+let externalHealthCache: { at: number; payload: ExternalHealthPayload } | null = null;
+let externalHealthInflight: Promise<ExternalHealthPayload> | null = null;
+
 /**
  * Liveness check for downstream services we depend on. Pings each with a
  * short HEAD/GET timeout and returns the status grid. Never fails — each
- * downstream is reported individually.
+ * downstream is reported individually. Cached for 30s and stampede-safe.
  */
 export async function getExternalHealth(_req: Request, res: Response): Promise<void> {
+  if (externalHealthCache && Date.now() - externalHealthCache.at < EXTERNAL_HEALTH_TTL_MS) {
+    res.json(externalHealthCache.payload);
+    return;
+  }
+  if (externalHealthInflight) {
+    // Coalesce: another caller is already probing — just await their result.
+    const payload = await externalHealthInflight;
+    res.json(payload);
+    return;
+  }
+  externalHealthInflight = probeExternalHealth().finally(() => {
+    externalHealthInflight = null;
+  });
+  try {
+    const payload = await externalHealthInflight;
+    res.json(payload);
+  } catch (err) {
+    // probeExternalHealth itself never throws (each target is wrapped),
+    // but be defensive so a bug here doesn't take the request down silently.
+    res.status(500).json({ error: err instanceof Error ? err.message : "external health failed" });
+  }
+}
+
+async function probeExternalHealth(): Promise<ExternalHealthPayload> {
   const targets = [
     {
       name: "TheMealDB",
@@ -457,7 +496,9 @@ export async function getExternalHealth(_req: Request, res: Response): Promise<v
     })
   );
 
-  res.json({ checkedAt: new Date().toISOString(), targets: results });
+  const payload = { checkedAt: new Date().toISOString(), targets: results };
+  externalHealthCache = { at: Date.now(), payload };
+  return payload;
 }
 
 export async function sendTestAlert(req: Request, res: Response): Promise<void> {
