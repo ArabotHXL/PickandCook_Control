@@ -48,7 +48,7 @@ export async function getOverviewMetrics(
     userReports,
     pendingModeration,
   ] = await Promise.all([
-    countRows("users", "WHERE deleted_at IS NULL OR deleted_at > NOW()"),
+    countRows("users"),
     query<{ n: string }>(
       `SELECT COUNT(*)::text AS n FROM users WHERE created_at >= $1`,
       [d7]
