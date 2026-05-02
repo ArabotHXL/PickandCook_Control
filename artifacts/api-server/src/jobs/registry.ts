@@ -26,7 +26,7 @@ export const JOB_DEFINITIONS: JobDefinition[] = [
   {
     name: "wikibooks:weekly",
     cronExpr: "0 5 * * 0",
-    description: "Wikibooks cookbook scraper (deferred — see replit.md)",
+    description: "Wikibooks Cookbook scraper — wikitext-based ingredient extraction → imported_recipes_staging",
     handler: wikibooksWeekly,
   },
 ];

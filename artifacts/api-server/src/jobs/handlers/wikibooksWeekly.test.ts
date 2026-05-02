@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { extractCandidateIngredients, normalizeTitle } from "./wikibooksWeekly.js";
+import {
+  extractCandidateIngredients,
+  extractIngredientsFromWikitext,
+  normalizeTitle,
+} from "./wikibooksWeekly.js";
 
 describe("extractCandidateIngredients", () => {
   it("returns [] when no Ingredients section is present", () => {
@@ -34,6 +38,62 @@ Procedure
     const lines = Array.from({ length: 100 }, (_, i) => `* item ${i}`);
     const text = `Ingredients\n${lines.join("\n")}\nProcedure\n`;
     const out = extractCandidateIngredients(text);
+    expect(out.length).toBeLessThanOrEqual(30);
+  });
+});
+
+describe("extractIngredientsFromWikitext", () => {
+  it("returns [] when no Ingredients heading is present", () => {
+    expect(extractIngredientsFromWikitext("== Procedure ==\n* mix")).toEqual([]);
+  });
+
+  it("strips {{convert}} and {{cb|x}} templates from bullet items", () => {
+    const wikitext = `==Ingredients==
+* {{convert|5|g|oz}} {{cb|agar}} powder
+* {{convert|100|g|oz}} white granulated {{cb|sugar}}
+* {{convert|500|g|oz}} {{cb|water}}
+
+==Procedure==
+* Combine.`;
+    const out = extractIngredientsFromWikitext(wikitext);
+    expect(out).toEqual([
+      "agar powder",
+      "white granulated sugar",
+      "water",
+    ]);
+  });
+
+  it("resolves piped wiki links to display text", () => {
+    const wikitext = `==Ingredients==
+* 1 [[Cookbook:Teaspoon|tsp]] [[salt]]
+* [[Cookbook:Olive oil|olive oil]]`;
+    const out = extractIngredientsFromWikitext(wikitext);
+    expect(out[0]).toContain("salt");
+    expect(out[1]).toBe("olive oil");
+  });
+
+  it("strips <ref> blocks, HTML, and bold/italic markers", () => {
+    const wikitext = `==Ingredients==
+* '''2 cups''' flour <ref>King Arthur</ref>
+* ''fresh'' basil<br/>`;
+    const out = extractIngredientsFromWikitext(wikitext);
+    expect(out[0]).toBe("2 cups flour");
+    expect(out[1]).toBe("fresh basil");
+  });
+
+  it("stops at the next heading", () => {
+    const wikitext = `==Ingredients==
+* sugar
+==Procedure==
+* not an ingredient`;
+    const out = extractIngredientsFromWikitext(wikitext);
+    expect(out).toEqual(["sugar"]);
+  });
+
+  it("caps result at 30 entries", () => {
+    const lines = Array.from({ length: 100 }, (_, i) => `* item ${i}`);
+    const wikitext = `==Ingredients==\n${lines.join("\n")}\n==Procedure==`;
+    const out = extractIngredientsFromWikitext(wikitext);
     expect(out.length).toBeLessThanOrEqual(30);
   });
 });

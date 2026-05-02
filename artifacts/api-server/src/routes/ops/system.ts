@@ -64,7 +64,10 @@ export async function getSystemHealth(_req: Request, res: Response): Promise<voi
     getLatestJob("notification_send"),
     query<Record<string, unknown>>(
       `SELECT id, job_name, status, started_at, finished_at, duration_ms, error_message, triggered_by, summary
-       FROM job_runs WHERE status = 'failed' ORDER BY started_at DESC LIMIT 5`
+       FROM job_runs
+       WHERE status = 'failed'
+         AND started_at >= NOW() - INTERVAL '7 days'
+       ORDER BY started_at DESC LIMIT 5`
     ),
     query<{ total: string; failed: string }>(
       `SELECT

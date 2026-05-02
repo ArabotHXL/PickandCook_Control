@@ -5,6 +5,10 @@ import type { AdminPayload } from "./auth.js";
 import { parseLimit, parsePage } from "./queryParams.js";
 import { randomUUID } from "node:crypto";
 import { mapIngredientNames } from "../../services/ingredientMapping.js";
+import {
+  extractIngredientsFromWikitext,
+  fetchWikitextByPageId,
+} from "../../jobs/handlers/wikibooksWeekly.js";
 
 function getAdminUser(req: Request): AdminPayload {
   return (req as Request & { adminUser: AdminPayload }).adminUser;
@@ -461,14 +465,19 @@ export async function remapStagingIngredients(
     const newRate = totalAttempted > 0 ? combinedMapped.length / totalAttempted : 0;
     const newStatus = newRate >= 0.5 ? "ready" : "needs_review";
 
-    await query(
+    // State guard: never overwrite a row that was promoted/rejected between
+    // our SELECT and this UPDATE. Treat 0-row updates as concurrent
+    // finalization and skip silently.
+    const updated = await query(
       `UPDATE imported_recipes_staging
           SET required_ingredient_ids = $2::jsonb,
               unmapped_ingredient_names = $3::jsonb,
               mapping_rate = $4,
               status = $5,
               updated_at = NOW()
-        WHERE id = $1`,
+        WHERE id = $1
+          AND status IN ('imported','needs_review')
+        RETURNING id`,
       [
         row.id,
         JSON.stringify(combinedMapped),
@@ -477,6 +486,7 @@ export async function remapStagingIngredients(
         newStatus,
       ]
     );
+    if (updated.length === 0) continue;
 
     touched++;
     totalDelta += newlyMapped.length;
@@ -503,6 +513,135 @@ export async function remapStagingIngredients(
     scanned: rows.length,
     touched,
     newlyMappedIngredients: totalDelta,
+    promotedToReady: nowReady,
+  });
+}
+
+/**
+ * Re-extract ingredients for wikibooks staging rows from the original
+ * wikitext. Useful after the wikitext extractor improves: the existing
+ * rows that were imported under the old (plain-text) extractor get a fresh
+ * structured pass without needing to re-import from MediaWiki.
+ *
+ * Currently scoped to source='wikibooks' since that's the only source where
+ * we have a re-fetchable raw payload (page id) + a wikitext extractor.
+ *
+ * Bounded to imported / needs_review rows; capped per call. Each row's
+ * mapping_rate may go up or down. Status is recomputed against the 0.5 cutoff.
+ * Per-page network errors are isolated. One rollup audit entry.
+ */
+const MAX_REEXTRACT_PER_CALL = 50;
+
+export async function reextractStagingIngredients(
+  req: Request,
+  res: Response
+): Promise<void> {
+  const admin = getAdminUser(req);
+  const sourceFilter = req.body?.source as string | undefined;
+  const onlyNeedsReview = req.body?.onlyNeedsReview === true;
+
+  if (sourceFilter !== "wikibooks") {
+    res.status(400).json({
+      error: "Re-extract currently supports only source=wikibooks",
+    });
+    return;
+  }
+
+  const rows = await query<{
+    id: string;
+    source_recipe_id: string;
+    required_ingredient_ids: unknown;
+    mapping_rate: number | null;
+    status: string;
+  }>(
+    `SELECT id, source_recipe_id, required_ingredient_ids, mapping_rate, status
+       FROM imported_recipes_staging
+      WHERE source = 'wikibooks'
+        AND status = ANY($1::text[])
+        AND source_recipe_id IS NOT NULL
+      ORDER BY mapping_rate ASC NULLS FIRST
+      LIMIT ${MAX_REEXTRACT_PER_CALL}`,
+    [onlyNeedsReview ? ["needs_review"] : ["imported", "needs_review"]]
+  );
+
+  let touched = 0;
+  let errors = 0;
+  let totalDelta = 0;
+  let nowReady = 0;
+
+  for (const row of rows) {
+    try {
+      const wikitext = await fetchWikitextByPageId(row.source_recipe_id);
+      if (!wikitext) {
+        errors++;
+        continue;
+      }
+      const candidates = extractIngredientsFromWikitext(wikitext);
+      if (candidates.length === 0) continue;
+
+      const { mapped, unmapped } = await mapIngredientNames(candidates);
+      const totalAttempted = mapped.length + unmapped.length;
+      if (totalAttempted === 0) continue;
+      const newRate = mapped.length / totalAttempted;
+      const newStatus = newRate >= 0.5 ? "ready" : "needs_review";
+
+      const prevMappedCount = Array.isArray(row.required_ingredient_ids)
+        ? (row.required_ingredient_ids as unknown[]).length
+        : 0;
+
+      // State guard: never overwrite a row that was promoted/rejected
+      // between our SELECT and this UPDATE. If 0 rows update, treat as a
+      // concurrent finalization and skip silently.
+      const updated = await query(
+        `UPDATE imported_recipes_staging
+            SET required_ingredient_ids = $2::jsonb,
+                unmapped_ingredient_names = $3::jsonb,
+                mapping_rate = $4,
+                status = $5,
+                updated_at = NOW()
+          WHERE id = $1
+            AND status IN ('imported','needs_review')
+          RETURNING id`,
+        [
+          row.id,
+          JSON.stringify(mapped),
+          JSON.stringify(unmapped),
+          newRate,
+          newStatus,
+        ]
+      );
+      if (updated.length === 0) continue;
+
+      touched++;
+      totalDelta += mapped.length - prevMappedCount;
+      if (newStatus === "ready" && row.status !== "ready") nowReady++;
+    } catch (err) {
+      errors++;
+    }
+  }
+
+  await writeAuditLog({
+    adminUserId: admin.userId,
+    actionType: "staging_recipes_reextract",
+    targetType: "imported_recipes_staging",
+    targetId: "batch",
+    newValue: {
+      source: "wikibooks",
+      scanned: rows.length,
+      touched,
+      errors,
+      mappedDelta: totalDelta,
+      promotedToReady: nowReady,
+      onlyNeedsReview,
+    },
+  });
+
+  res.json({
+    ok: true,
+    scanned: rows.length,
+    touched,
+    errors,
+    mappedDelta: totalDelta,
     promotedToReady: nowReady,
   });
 }

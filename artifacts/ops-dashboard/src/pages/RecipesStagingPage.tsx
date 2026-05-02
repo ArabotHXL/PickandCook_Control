@@ -356,6 +356,23 @@ export function RecipesStagingPage() {
       toast({ title: "Re-map failed", description: e.message, variant: "destructive" }),
   });
 
+  const reextract = useMutation({
+    mutationFn: () =>
+      apiFetch(`/api/ops/recipes/staging/reextract`, {
+        method: "POST",
+        body: JSON.stringify({ source: "wikibooks" }),
+      }).then((r) => r.json()),
+    onSuccess: (d) => {
+      toast({
+        title: "Re-extracted wikibooks rows",
+        description: `Scanned ${d.scanned}, updated ${d.touched}, ${d.errors} errors, ${d.promotedToReady} now ready (Δ ${d.mappedDelta >= 0 ? "+" : ""}${d.mappedDelta} ingredients).`,
+      });
+      qc.invalidateQueries({ queryKey: ["ops", "staging"] });
+    },
+    onError: (e: Error) =>
+      toast({ title: "Re-extract failed", description: e.message, variant: "destructive" }),
+  });
+
   const totalPages = Math.ceil((list.data?.total ?? 0) / 50);
   const facets = list.data?.facets;
 
@@ -365,16 +382,30 @@ export function RecipesStagingPage() {
         title="Recipe Staging"
         description="Imports from TheMealDB / Wikibooks waiting to be promoted into the catalog"
         actions={
-          <button
-            onClick={() => remap.mutate({ source: source || undefined })}
-            disabled={remap.isPending}
-            data-testid="button-remap"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium border border-input bg-background hover:bg-muted disabled:opacity-50"
-            title="Re-run ingredient mapping over imported / needs_review rows (capped at 200)"
-          >
-            <Wand2 className="w-4 h-4" />
-            {remap.isPending ? "Re-mapping…" : "Re-map ingredients"}
-          </button>
+          <div className="flex items-center gap-2">
+            {source === "wikibooks" && (
+              <button
+                onClick={() => reextract.mutate()}
+                disabled={reextract.isPending}
+                data-testid="button-reextract-wikibooks"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium border border-input bg-background hover:bg-muted disabled:opacity-50"
+                title="Re-fetch wikitext from Wikibooks and re-run structured ingredient extraction (capped at 50)"
+              >
+                <Wand2 className="w-4 h-4" />
+                {reextract.isPending ? "Re-extracting…" : "Re-extract from source"}
+              </button>
+            )}
+            <button
+              onClick={() => remap.mutate({ source: source || undefined })}
+              disabled={remap.isPending}
+              data-testid="button-remap"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium border border-input bg-background hover:bg-muted disabled:opacity-50"
+              title="Re-run ingredient mapping over imported / needs_review rows (capped at 200)"
+            >
+              <Wand2 className="w-4 h-4" />
+              {remap.isPending ? "Re-mapping…" : "Re-map ingredients"}
+            </button>
+          </div>
         }
       />
       <div className="p-6 space-y-4">

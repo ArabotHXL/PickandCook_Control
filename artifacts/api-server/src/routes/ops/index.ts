@@ -24,6 +24,7 @@ import {
   promoteStagingRecipe,
   rejectStagingRecipe,
   remapStagingIngredients,
+  reextractStagingIngredients,
 } from "./recipesStaging.js";
 import {
   getRecipeDetail,
@@ -121,6 +122,7 @@ export function registerOpsRoutes(app: Express): void {
   // Staging promotion (TheMealDB / Wikibooks imports waiting for human review)
   app.get("/api/ops/recipes/staging", requireAdmin, listStagingRecipes);
   app.post("/api/ops/recipes/staging/remap", requireAdminWrite, remapStagingIngredients);
+  app.post("/api/ops/recipes/staging/reextract", requireAdminWrite, reextractStagingIngredients);
   app.get("/api/ops/recipes/staging/:stagingId", requireAdmin, getStagingDetail);
   app.patch("/api/ops/recipes/staging/:stagingId", requireAdminWrite, updateStagingRecipe);
   app.post("/api/ops/recipes/staging/:stagingId/promote", requireAdminWrite, promoteStagingRecipe);
