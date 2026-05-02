@@ -3,11 +3,15 @@ import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
   Users,
+  Home,
   ShoppingBasket,
   Package,
   ChefHat,
+  CookingPot,
+  Receipt,
   Shield,
   BarChart2,
+  Sparkles,
   Bell,
   Activity,
   ClipboardList,
@@ -15,17 +19,54 @@ import {
   ChevronRight,
 } from "lucide-react";
 
-const NAV_ITEMS = [
-  { href: "/", icon: LayoutDashboard, label: "Overview" },
-  { href: "/users", icon: Users, label: "Users" },
-  { href: "/pantry", icon: ShoppingBasket, label: "Pantry Ops" },
-  { href: "/products", icon: Package, label: "Products" },
-  { href: "/recipes", icon: ChefHat, label: "Recipes" },
-  { href: "/moderation", icon: Shield, label: "Moderation" },
-  { href: "/analytics", icon: BarChart2, label: "Analytics" },
-  { href: "/notifications", icon: Bell, label: "Notifications" },
-  { href: "/system", icon: Activity, label: "System Health" },
-  { href: "/audit", icon: ClipboardList, label: "Audit Log" },
+interface NavSection {
+  label: string;
+  items: { href: string; icon: typeof LayoutDashboard; label: string }[];
+}
+
+const NAV_SECTIONS: NavSection[] = [
+  {
+    label: "Overview",
+    items: [{ href: "/", icon: LayoutDashboard, label: "Overview" }],
+  },
+  {
+    label: "People",
+    items: [
+      { href: "/users", icon: Users, label: "Users" },
+      { href: "/households", icon: Home, label: "Households" },
+    ],
+  },
+  {
+    label: "Inventory",
+    items: [
+      { href: "/pantry", icon: ShoppingBasket, label: "Pantry Ops" },
+      { href: "/products", icon: Package, label: "Products" },
+      { href: "/receipts", icon: Receipt, label: "Receipts" },
+    ],
+  },
+  {
+    label: "Cooking",
+    items: [
+      { href: "/recipes", icon: ChefHat, label: "Recipes" },
+      { href: "/cook-sessions", icon: CookingPot, label: "Cook Sessions" },
+    ],
+  },
+  {
+    label: "Insights",
+    items: [
+      { href: "/analytics", icon: BarChart2, label: "Analytics" },
+      { href: "/ai-usage", icon: Sparkles, label: "AI / LLM Usage" },
+    ],
+  },
+  {
+    label: "Operations",
+    items: [
+      { href: "/moderation", icon: Shield, label: "Moderation" },
+      { href: "/notifications", icon: Bell, label: "Notifications" },
+      { href: "/system", icon: Activity, label: "System Health" },
+      { href: "/audit", icon: ClipboardList, label: "Audit Log" },
+    ],
+  },
 ];
 
 interface SidebarProps {
@@ -51,28 +92,35 @@ export function Sidebar({ user, onLogout }: SidebarProps) {
       </div>
 
       <nav className="flex-1 px-3 py-4 overflow-y-auto">
-        <ul className="space-y-0.5">
-          {NAV_ITEMS.map(({ href, icon: Icon, label }) => {
-            const active = href === "/" ? location === "/" : location.startsWith(href);
-            return (
-              <li key={href}>
-                <Link
-                  href={href}
-                  className={cn(
-                    "flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors group",
-                    active
-                      ? "bg-sidebar-primary text-sidebar-primary-foreground font-medium"
-                      : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                  )}
-                >
-                  <Icon className="w-4 h-4 shrink-0" />
-                  <span className="flex-1">{label}</span>
-                  {active && <ChevronRight className="w-3 h-3 opacity-60" />}
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
+        {NAV_SECTIONS.map((section) => (
+          <div key={section.label} className="mb-4 last:mb-0">
+            <p className="px-3 mb-1 text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/40">
+              {section.label}
+            </p>
+            <ul className="space-y-0.5">
+              {section.items.map(({ href, icon: Icon, label }) => {
+                const active = href === "/" ? location === "/" : location.startsWith(href);
+                return (
+                  <li key={href}>
+                    <Link
+                      href={href}
+                      className={cn(
+                        "flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors group",
+                        active
+                          ? "bg-sidebar-primary text-sidebar-primary-foreground font-medium"
+                          : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                      )}
+                    >
+                      <Icon className="w-4 h-4 shrink-0" />
+                      <span className="flex-1">{label}</span>
+                      {active && <ChevronRight className="w-3 h-3 opacity-60" />}
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ))}
       </nav>
 
       <div className="px-3 py-4 border-t border-sidebar-border">

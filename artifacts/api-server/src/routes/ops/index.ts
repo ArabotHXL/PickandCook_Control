@@ -24,6 +24,12 @@ import {
 } from "./notifications.js";
 import { getSystemHealth, listJobRuns } from "./system.js";
 import { listAuditLog } from "./auditLog.js";
+import { getAiUsageSummary, listAiInteractions } from "./aiUsage.js";
+import { listCookSessions, listPantryDeductionReviews } from "./cookSessions.js";
+import { listReceipts, getReceiptDetail } from "./receipts.js";
+import { listHouseholds, getHouseholdMembers } from "./households.js";
+import { getSearchSummary, getRecsysSummary } from "./searchRecsys.js";
+import { listFlags, updateFlag } from "./flags.js";
 
 export function registerOpsRoutes(app: Express): void {
   // ── Auth (no admin middleware) ───────────────────────────────────────────
@@ -63,14 +69,34 @@ export function registerOpsRoutes(app: Express): void {
   // ── Analytics ─────────────────────────────────────────────────────────────
   app.get("/api/ops/analytics/events", requireAdmin, listAnalyticsEvents);
   app.get("/api/ops/analytics/summary", requireAdmin, getAnalyticsSummary);
+  app.get("/api/ops/analytics/search", requireAdmin, getSearchSummary);
+  app.get("/api/ops/analytics/recsys", requireAdmin, getRecsysSummary);
 
   // ── Notifications ─────────────────────────────────────────────────────────
   app.get("/api/ops/notifications/templates", requireAdmin, listNotificationTemplates);
   app.get("/api/ops/notifications/log", requireAdmin, listNotificationLog);
 
+  // ── AI / LLM Usage ────────────────────────────────────────────────────────
+  app.get("/api/ops/ai/summary", requireAdmin, getAiUsageSummary);
+  app.get("/api/ops/ai/interactions", requireAdmin, listAiInteractions);
+
+  // ── Cook Sessions ─────────────────────────────────────────────────────────
+  app.get("/api/ops/cook-sessions", requireAdmin, listCookSessions);
+  app.get("/api/ops/cook-sessions/deduction-reviews", requireAdmin, listPantryDeductionReviews);
+
+  // ── Receipts ──────────────────────────────────────────────────────────────
+  app.get("/api/ops/receipts", requireAdmin, listReceipts);
+  app.get("/api/ops/receipts/:receiptId", requireAdmin, getReceiptDetail);
+
+  // ── Households ────────────────────────────────────────────────────────────
+  app.get("/api/ops/households", requireAdmin, listHouseholds);
+  app.get("/api/ops/households/:householdId/members", requireAdmin, getHouseholdMembers);
+
   // ── System ────────────────────────────────────────────────────────────────
   app.get("/api/ops/system/health", requireAdmin, getSystemHealth);
   app.get("/api/ops/system/jobs", requireAdmin, listJobRuns);
+  app.get("/api/ops/system/flags", requireAdmin, listFlags);
+  app.patch("/api/ops/system/flags/:scopeId", requireAdmin, updateFlag);
 
   // ── Audit ─────────────────────────────────────────────────────────────────
   app.get("/api/ops/audit", requireAdmin, listAuditLog);

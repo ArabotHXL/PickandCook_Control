@@ -14,6 +14,10 @@ import { AnalyticsPage } from "@/pages/AnalyticsPage";
 import { NotificationsPage } from "@/pages/NotificationsPage";
 import { SystemPage } from "@/pages/SystemPage";
 import { AuditLogPage } from "@/pages/AuditLogPage";
+import { AIUsagePage } from "@/pages/AIUsagePage";
+import { CookSessionsPage } from "@/pages/CookSessionsPage";
+import { ReceiptsPage } from "@/pages/ReceiptsPage";
+import { HouseholdsPage } from "@/pages/HouseholdsPage";
 import { useAuth } from "@/hooks/useAuth";
 import NotFound from "@/pages/not-found";
 
@@ -46,11 +50,15 @@ function AppRoutes() {
       <Switch>
         <Route path="/" component={OverviewPage} />
         <Route path="/users" component={UsersPage} />
+        <Route path="/households" component={HouseholdsPage} />
         <Route path="/pantry" component={PantryPage} />
         <Route path="/products" component={ProductsPage} />
         <Route path="/recipes" component={RecipesPage} />
+        <Route path="/cook-sessions" component={CookSessionsPage} />
+        <Route path="/receipts" component={ReceiptsPage} />
         <Route path="/moderation" component={ModerationPage} />
         <Route path="/analytics" component={AnalyticsPage} />
+        <Route path="/ai-usage" component={AIUsagePage} />
         <Route path="/notifications" component={NotificationsPage} />
         <Route path="/system" component={SystemPage} />
         <Route path="/audit" component={AuditLogPage} />

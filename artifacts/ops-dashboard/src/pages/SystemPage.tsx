@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/query-client";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
-import { Activity, AlertTriangle, CheckCircle, Clock, DollarSign, ChevronLeft, ChevronRight } from "lucide-react";
+import { Activity, AlertTriangle, CheckCircle, DollarSign, ChevronLeft, ChevronRight, Flag } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 function useSystemHealth() {
@@ -23,6 +23,13 @@ function useJobRuns(jobName: string, status: string, page: number) {
       if (status) params.set("status", status);
       return apiFetch(`/api/ops/system/jobs?${params.toString()}`).then((r) => r.json());
     },
+  });
+}
+
+function useFlags() {
+  return useQuery({
+    queryKey: ["ops", "system", "flags"],
+    queryFn: () => apiFetch("/api/ops/system/flags").then((r) => r.json()),
   });
 }
 
@@ -46,44 +53,76 @@ function JobRow({ job }: { job: Record<string, unknown> }) {
       )} />
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium text-foreground">{String(job.jobName ?? "—")}</p>
-        {job.errorMessage && (
+        {job.errorMessage ? (
           <p className="text-xs text-destructive truncate">{String(job.errorMessage)}</p>
-        )}
+        ) : null}
       </div>
       <div className="text-right">
         <p className="text-xs text-muted-foreground">{job.startedAt ? new Date(String(job.startedAt)).toLocaleString() : "—"}</p>
-        {job.durationMs && <p className="text-xs text-muted-foreground">{(Number(job.durationMs) / 1000).toFixed(1)}s</p>}
+        {job.durationMs ? <p className="text-xs text-muted-foreground">{(Number(job.durationMs) / 1000).toFixed(1)}s</p> : null}
       </div>
     </div>
   );
 }
 
 export function SystemPage() {
-  const [tab, setTab] = useState<"health" | "jobs">("health");
+  const [tab, setTab] = useState<"health" | "jobs" | "flags">("health");
   const [jobName, setJobName] = useState("");
   const [jobStatus, setJobStatus] = useState("");
   const [page, setPage] = useState(1);
+  const qc = useQueryClient();
 
   const healthQuery = useSystemHealth();
   const jobsQuery = useJobRuns(jobName, jobStatus, page);
+  const flagsQuery = useFlags();
+
+  const updateFlagMutation = useMutation({
+    mutationFn: ({ scopeId, key, value }: { scopeId: string; key: string; value: unknown }) =>
+      apiFetch(`/api/ops/system/flags/${scopeId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ key, value }),
+      }).then((r) => r.json()),
+    // Optimistic update so the UI reflects the new value immediately,
+    // preventing race conditions if the user clicks rapidly while the
+    // background refetch is still in flight.
+    onMutate: async ({ scopeId, key, value }) => {
+      await qc.cancelQueries({ queryKey: ["ops", "system", "flags"] });
+      const prev = qc.getQueryData<{ scopes: Array<{ id: string; flags: Record<string, unknown> }> }>([
+        "ops", "system", "flags",
+      ]);
+      if (prev) {
+        qc.setQueryData(["ops", "system", "flags"], {
+          ...prev,
+          scopes: prev.scopes.map((s) =>
+            s.id === scopeId ? { ...s, flags: { ...s.flags, [key]: value } } : s
+          ),
+        });
+      }
+      return { prev };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.prev) qc.setQueryData(["ops", "system", "flags"], context.prev);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["ops", "system", "flags"] }),
+  });
 
   const health = healthQuery.data;
   const jobs = jobsQuery.data?.jobs ?? [];
   const total = jobsQuery.data?.total ?? 0;
-  const totalPages = Math.ceil(total / 50);
+  const totalPages = Math.max(1, Math.ceil(total / 50));
 
   return (
     <div>
-      <PageHeader title="System Health" description="Job monitoring and infrastructure" />
+      <PageHeader title="System Health" description="Job monitoring, infrastructure, and feature flags" />
 
       <div className="p-6 space-y-4">
         <div className="flex gap-1 border-b border-border">
-          {(["health", "jobs"] as const).map((t) => (
+          {(["health", "jobs", "flags"] as const).map((t) => (
             <button key={t} onClick={() => setTab(t)}
               className={cn("px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors",
                 tab === t ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
               )}>
-              {t === "health" ? "Overview" : "All Job Runs"}
+              {t === "health" ? "Overview" : t === "jobs" ? "All Job Runs" : "Feature Flags"}
             </button>
           ))}
         </div>
@@ -205,7 +244,81 @@ export function SystemPage() {
             )}
           </>
         )}
+
+        {tab === "flags" && (
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground flex items-center gap-2">
+              <Flag className="w-4 h-4" />
+              Toggle feature flags by scope. Changes are audited.
+            </p>
+            {flagsQuery.isLoading ? (
+              <div className="space-y-2">{Array.from({ length: 2 }).map((_, i) => <div key={i} className="h-32 bg-muted rounded animate-pulse" />)}</div>
+            ) : (flagsQuery.data?.scopes ?? []).length === 0 ? (
+              <div className="bg-card border border-card-border rounded-lg p-8 text-center">
+                <p className="text-sm text-muted-foreground">No feature flag scopes configured</p>
+              </div>
+            ) : (
+              (flagsQuery.data?.scopes ?? []).map((scope: { id: string; flags: Record<string, unknown>; updatedAt: string; updatedBy: string | null }) => {
+                const entries = Object.entries(scope.flags ?? {});
+                return (
+                  <div key={scope.id} className="bg-card border border-card-border rounded-lg p-5 shadow-sm">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-sm font-semibold font-mono">{scope.id}</h3>
+                      <p className="text-xs text-muted-foreground">
+                        Updated {scope.updatedAt ? new Date(scope.updatedAt).toLocaleString() : "never"}
+                        {scope.updatedBy && ` • by ${scope.updatedBy.slice(0, 8)}`}
+                      </p>
+                    </div>
+                    {entries.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No flags set in this scope</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {entries.map(([key, value]) => (
+                          <FlagRow
+                            key={key}
+                            scopeId={scope.id}
+                            flagKey={key}
+                            value={value}
+                            disabled={updateFlagMutation.isPending}
+                            onToggle={(newValue) => updateFlagMutation.mutate({ scopeId: scope.id, key, value: newValue })}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        )}
       </div>
+    </div>
+  );
+}
+
+function FlagRow({ scopeId: _scopeId, flagKey, value, disabled, onToggle }: { scopeId: string; flagKey: string; value: unknown; disabled: boolean; onToggle: (v: unknown) => void }) {
+  const isBool = typeof value === "boolean";
+  return (
+    <div className="flex items-center justify-between py-2 border-b border-border last:border-0">
+      <div>
+        <p className="text-sm font-mono font-medium">{flagKey}</p>
+        {!isBool && <p className="text-xs text-muted-foreground font-mono">{JSON.stringify(value)}</p>}
+      </div>
+      {isBool ? (
+        <button
+          onClick={() => onToggle(!value)}
+          disabled={disabled}
+          className={cn("relative w-10 h-5 rounded-full transition-colors disabled:opacity-50",
+            value ? "bg-primary" : "bg-muted"
+          )}
+        >
+          <span className={cn("absolute top-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform",
+            value ? "translate-x-5" : "translate-x-0.5"
+          )} />
+        </button>
+      ) : (
+        <span className="text-xs text-muted-foreground italic">non-boolean (read-only)</span>
+      )}
     </div>
   );
 }

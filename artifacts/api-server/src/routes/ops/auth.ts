@@ -3,7 +3,13 @@ import type { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 
-const JWT_SECRET = process.env.SESSION_SECRET ?? "ops-secret-change-me";
+const SESSION_SECRET = process.env.SESSION_SECRET;
+if (!SESSION_SECRET || SESSION_SECRET.length < 16) {
+  throw new Error(
+    "SESSION_SECRET env var must be set to a strong value (>=16 chars) for ops auth"
+  );
+}
+const JWT_SECRET: string = SESSION_SECRET;
 const TOKEN_EXPIRY = "12h";
 
 export interface AdminPayload {
