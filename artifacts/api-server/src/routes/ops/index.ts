@@ -1,4 +1,5 @@
 import type { Express } from "express";
+import rateLimit from "express-rate-limit";
 import { requireAdmin, opsLogin, opsMe } from "./auth.js";
 import { getOverviewMetrics, getOpsFunnel } from "./overview.js";
 import { listUsers, getUserDetail, setUserRole } from "./users.js";
@@ -29,7 +30,13 @@ import {
   listNotificationTemplates,
   listNotificationLog,
 } from "./notifications.js";
-import { getSystemHealth, listJobRuns, clearStuckJobs } from "./system.js";
+import {
+  getSystemHealth,
+  listJobRuns,
+  clearStuckJobs,
+  listAvailableJobs,
+  triggerJob,
+} from "./system.js";
 import { listAuditLog } from "./auditLog.js";
 import { getAiUsageSummary, listAiInteractions } from "./aiUsage.js";
 import { getAiAlerts, setAiCostThreshold } from "./aiAlerts.js";
@@ -40,9 +47,24 @@ import { getSearchSummary, getRecsysSummary } from "./searchRecsys.js";
 import { listFlags, updateFlag } from "./flags.js";
 import { getUserTimeline } from "./userTimeline.js";
 
+// Throttle login attempts to slow brute-force probing. Counts attempts per IP
+// (the global proxy forwards the original client IP via X-Forwarded-For; we
+// trust it because all traffic enters through Replit's proxy).
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // 10 attempts per IP per window
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many login attempts; please try again later." },
+});
+
 export function registerOpsRoutes(app: Express): void {
+  // Required for express-rate-limit to read X-Forwarded-For correctly behind
+  // the Replit shared proxy.
+  app.set("trust proxy", 1);
+
   // ── Auth (no admin middleware) ───────────────────────────────────────────
-  app.post("/api/ops/auth/login", opsLogin);
+  app.post("/api/ops/auth/login", loginLimiter, opsLogin);
   app.get("/api/ops/auth/me", requireAdmin, opsMe);
 
   // ── Overview ─────────────────────────────────────────────────────────────
@@ -118,6 +140,8 @@ export function registerOpsRoutes(app: Express): void {
   app.get("/api/ops/system/health", requireAdmin, getSystemHealth);
   app.get("/api/ops/system/jobs", requireAdmin, listJobRuns);
   app.post("/api/ops/system/jobs/clear-stuck", requireAdmin, clearStuckJobs);
+  app.get("/api/ops/system/jobs/available", requireAdmin, listAvailableJobs);
+  app.post("/api/ops/system/jobs/:jobName/trigger", requireAdmin, triggerJob);
   app.get("/api/ops/system/flags", requireAdmin, listFlags);
   app.patch("/api/ops/system/flags/:scopeId", requireAdmin, updateFlag);
 

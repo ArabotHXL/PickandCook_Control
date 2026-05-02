@@ -57,7 +57,7 @@ export async function updateFlag(req: Request, res: Response): Promise<void> {
     adminUserId: admin.userId,
     actionType: "feature_flag_set",
     targetType: "system_flags",
-    targetId: scopeId,
+    targetId: String(scopeId),
     oldValue: { [key]: before[key] ?? null },
     newValue: { [key]: value },
   });

@@ -13,6 +13,7 @@ import {
   Flag,
   Clock,
   Trash2,
+  Play,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -132,6 +133,26 @@ export function SystemPage() {
       qc.invalidateQueries({ queryKey: ["ops", "system", "jobs"] });
     },
   });
+
+  const triggerJobMutation = useMutation({
+    mutationFn: (jobName: string) =>
+      apiFetch(`/api/ops/system/jobs/${encodeURIComponent(jobName)}/trigger`, {
+        method: "POST",
+      }).then((r) => r.json()),
+    onSuccess: () => {
+      // Poll a few times so the new running → success transition shows up.
+      qc.invalidateQueries({ queryKey: ["ops", "system", "health"] });
+      qc.invalidateQueries({ queryKey: ["ops", "system", "jobs"] });
+      setTimeout(() => qc.invalidateQueries({ queryKey: ["ops", "system", "health"] }), 2000);
+      setTimeout(() => qc.invalidateQueries({ queryKey: ["ops", "system", "health"] }), 8000);
+    },
+  });
+
+  const availableJobsQuery = useQuery<{ jobs: Array<{ name: string; cronExpr: string; description: string }> }>({
+    queryKey: ["ops", "system", "available-jobs"],
+    queryFn: () => apiFetch("/api/ops/system/jobs/available").then((r) => r.json()),
+  });
+  const availableJobNames = new Set((availableJobsQuery.data?.jobs ?? []).map((j) => j.name));
 
   const updateFlagMutation = useMutation({
     mutationFn: ({ scopeId, key, value }: { scopeId: string; key: string; value: unknown }) =>
@@ -269,30 +290,45 @@ export function SystemPage() {
                   <p className="text-sm text-muted-foreground">No jobs have ever run</p>
                 ) : (
                   <div>
-                    {trackedJobs.map((tj) => (
-                      <div key={tj.jobName} className="flex items-center justify-between py-2.5 border-b border-border last:border-0 gap-3">
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium text-foreground font-mono truncate">{tj.jobName}</p>
-                          <p className="text-xs text-muted-foreground flex items-center gap-1">
-                            <Clock className="w-3 h-3" />
-                            {tj.lastSuccessAt
-                              ? `last success ${tj.staleSinceDays}d ago`
-                              : "never succeeded"}
-                          </p>
+                    {trackedJobs.map((tj) => {
+                      const canRun = availableJobNames.has(tj.jobName);
+                      const isPending = triggerJobMutation.isPending && triggerJobMutation.variables === tj.jobName;
+                      return (
+                        <div key={tj.jobName} className="flex items-center justify-between py-2.5 border-b border-border last:border-0 gap-3">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium text-foreground font-mono truncate">{tj.jobName}</p>
+                            <p className="text-xs text-muted-foreground flex items-center gap-1">
+                              <Clock className="w-3 h-3" />
+                              {tj.lastSuccessAt
+                                ? `last success ${tj.staleSinceDays}d ago`
+                                : "never succeeded"}
+                            </p>
+                          </div>
+                          {tj.latest ? (
+                            <span className={cn(
+                              "px-2 py-0.5 rounded text-xs font-medium shrink-0",
+                              STATUS_BADGE[String(tj.latest.status)] ?? "bg-muted",
+                              tj.stale && "ring-1 ring-amber-400"
+                            )}>
+                              {String(tj.latest.status)}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                          {canRun && (
+                            <button
+                              onClick={() => triggerJobMutation.mutate(tj.jobName)}
+                              disabled={triggerJobMutation.isPending}
+                              title={`Run ${tj.jobName} now`}
+                              className="shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
+                            >
+                              <Play className="w-3 h-3" />
+                              {isPending ? "Running…" : "Run"}
+                            </button>
+                          )}
                         </div>
-                        {tj.latest ? (
-                          <span className={cn(
-                            "px-2 py-0.5 rounded text-xs font-medium shrink-0",
-                            STATUS_BADGE[String(tj.latest.status)] ?? "bg-muted",
-                            tj.stale && "ring-1 ring-amber-400"
-                          )}>
-                            {String(tj.latest.status)}
-                          </span>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">—</span>
-                        )}
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>

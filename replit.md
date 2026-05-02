@@ -60,11 +60,32 @@ Sidebar grouped into Overview, People, Inventory, Cooking, Insights, Operations.
 
 All `/api/ops/*` list endpoints share `routes/ops/queryParams.ts` (`parseLimit`, `parsePage`, `parseDays`). Invalid values (`limit=abc`, `page=-1`, out-of-range `days`) throw `HttpError(400, …)` (`lib/httpError.ts`) which is caught by the global error middleware in `app.ts` and returned as `{"error":"…"}` JSON — no stack trace leaks. Add new list endpoints by importing from `queryParams.js` rather than re-implementing `parseInt(...)` patterns.
 
-## Data Pipeline (External)
+## Data Pipeline (Embedded Worker)
 
-Worker code for `products:nightly`, `recipes:nightly`, `wikibooks:weekly`, `recipe_import`, `barcode_import`, `notification_send` etc. **does not live in this repo** (verified via `rg`). The api-server only reads `job_runs` for display; it does not schedule or execute jobs. As of 2026-05-02 those jobs have not produced a successful run in 26–57 days — investigate the external worker if dashboard "stale" warnings appear. Ops dashboard System page surfaces this state and lets admins clear zombie `running` rows.
+A lightweight in-process scheduler runs **inside api-server** (`src/jobs/`) using `node-cron`. There is no separate worker artifact — one process, one DB pool. Gated on `NODE_ENV !== "test"` and `WORKER_ENABLED !== "false"`. All schedules in **UTC**.
+
+| Job | Schedule | Handler | Behaviour |
+| --- | --- | --- | --- |
+| `products:nightly` | `0 3 * * *` | `handlers/productsNightly.ts` | Lints products (counts missing kcal/brand/allergens/ingredients_text) + backfills allergens & ingredients_text from cached `barcode_meta` for products with empty allergens, joined via `product_barcodes`. Hard cap of 500 backfills/run. |
+| `recipes:nightly` | `0 4 * * *` | `handlers/recipesNightly.ts` | Reads cursor from `recipe_sync_state` (source `themealdb`), fetches `https://www.themealdb.com/api/json/v1/1/search.php?f=<letter>`, dedupes by `source_recipe_id`, inserts into `imported_recipes_staging` with mapping_rate computed by ILIKE-matching ingredient names against `products.name` + `synonyms`, advances cursor a→b→…→z→a. |
+| `wikibooks:weekly` | `0 5 * * 0` | `handlers/wikibooksWeekly.ts` | **Stub**. Wikibooks scraper is genuinely deferred — the cookbook tree is hand-curated XHTML and brittle to scrape; we'll revisit when there's a stronger product need. Logs `{deferred: true}`, finishes success so the dashboard stays green. |
+
+**Lifecycle code:**
+- `src/jobs/runner.ts` — `runJob(name, triggeredBy)` writes `job_runs` start/finish/fail rows. Locking is **atomic**: a partial unique index `job_runs_one_running_per_name ON job_runs(job_name) WHERE status='running'` (created by `migrations.ts` at boot) means `startJob` can `INSERT … ON CONFLICT DO NOTHING` and detect "already running" without a SELECT-then-INSERT race. Stale rows (locked_until expired) are reaped per-job before each claim.
+- `src/jobs/migrations.ts` — `ensureJobSchema()` creates the partial unique index idempotently at boot; reaps stale rows and retries if the create fails.
+- `src/jobs/registry.ts` — single source of truth: `name`, `cronExpr`, `description`, `handler`.
+- `src/jobs/scheduler.ts` — wires cron schedules at boot + exposes `triggerJobAsync(name, triggeredBy)` for manual runs.
+
+**Manual trigger:**
+- `GET /api/ops/system/jobs/available` — list registered jobs (admin-only).
+- `POST /api/ops/system/jobs/:jobName/trigger` — fire-and-forget; returns 202 immediately, runner records the row. Launch errors logged via `req.log`. Audited as `system.trigger_job`. Surfaced as a **Run** button next to each tracked job on `/system`.
+
+**Deploy caveat (multi-replica):** The atomic lock works across multiple processes hitting the same DB, so horizontal scaling is safe — only one replica wins the `INSERT ON CONFLICT` per job. However, every replica's cron will *attempt* to fire at the same UTC minute, so expect "skipped (already running)" warning logs on the loser replicas. If this becomes noisy, set `WORKER_ENABLED=false` on all but one replica.
+
+**OpenAPI status:** Ops routes (`/api/ops/*`) are NOT yet in the OpenAPI spec — only `/api/healthz` is. Migrating them is a deliberate follow-up (large surface area, would 3× the spec). For now they stay hand-rolled with shared validation in `routes/ops/queryParams.ts`.
 
 ## Auth & Login
 
 - Admin login: `POST /api/ops/auth/login` → `{ token }`. Frontend stores in `localStorage["ops_token"]` and sends as `Authorization: Bearer …`.
+- Login is throttled by `express-rate-limit`: **10 attempts per IP per 15 minutes** → HTTP 429. `app.set("trust proxy", 1)` so the limiter sees the real client IP behind Replit's shared proxy.
 - Default admin (dev seed): `admin@pickandcook.dev` / `Admin123!`.

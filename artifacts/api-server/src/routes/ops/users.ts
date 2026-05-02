@@ -211,7 +211,7 @@ export async function setUserRole(req: Request, res: Response): Promise<void> {
     adminUserId: admin.userId,
     actionType: "set_user_role",
     targetType: "user",
-    targetId: userId,
+    targetId: String(userId),
     oldValue: { role: existing.role },
     newValue: { role },
     decisionNote: note,

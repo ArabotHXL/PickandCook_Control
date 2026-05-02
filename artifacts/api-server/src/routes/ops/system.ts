@@ -3,6 +3,9 @@ import { query, queryOne } from "./db.js";
 import { parseLimit, parsePage } from "./queryParams.js";
 import { writeAuditLog } from "./audit.js";
 import type { AdminPayload } from "./auth.js";
+import { HttpError } from "../../lib/httpError.js";
+import { JOB_DEFINITIONS, getJob } from "../../jobs/registry.js";
+import { triggerJobAsync } from "../../jobs/scheduler.js";
 
 function getAdminUser(req: Request): AdminPayload {
   return (req as Request & { adminUser: AdminPayload }).adminUser;
@@ -231,4 +234,43 @@ export async function clearStuckJobs(req: Request, res: Response): Promise<void>
       startedAt: c.started_at,
     })),
   });
+}
+
+export async function listAvailableJobs(_req: Request, res: Response): Promise<void> {
+  res.json({
+    jobs: JOB_DEFINITIONS.map((j) => ({
+      name: j.name,
+      cronExpr: j.cronExpr,
+      description: j.description,
+    })),
+  });
+}
+
+export async function triggerJob(req: Request, res: Response): Promise<void> {
+  const admin = getAdminUser(req);
+  const jobName = req.params["jobName"];
+  if (!jobName || typeof jobName !== "string") {
+    throw new HttpError(400, "jobName param required");
+  }
+  const def = getJob(jobName);
+  if (!def) {
+    throw new HttpError(404, `Unknown job: ${jobName}`);
+  }
+
+  await writeAuditLog({
+    adminUserId: admin.userId,
+    actionType: "system.trigger_job",
+    targetType: "job",
+    targetId: jobName,
+    decisionNote: `Manually triggered ${jobName}`,
+  });
+
+  // Fire-and-forget; runner already records success/failure into job_runs.
+  // We still log launch errors here in case `startJob` itself blew up before
+  // a job_runs row was written.
+  triggerJobAsync(jobName, `manual:${admin.userId}`).catch((err: unknown) => {
+    req.log.error({ err, jobName, adminUserId: admin.userId }, "manual trigger launch failed");
+  });
+
+  res.status(202).json({ accepted: true, jobName });
 }

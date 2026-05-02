@@ -108,12 +108,12 @@ export function AuditLogPage() {
                     </td>
                     <td className="px-4 py-3 text-muted-foreground text-xs max-w-xs truncate">{entry.decisionNote ?? "—"}</td>
                     <td className="px-4 py-3">
-                      {(entry.oldValue || entry.newValue) && (
+                      {Boolean(entry.oldValue || entry.newValue) && (
                         <div className="flex gap-2 text-xs font-mono">
-                          {entry.oldValue && (
+                          {Boolean(entry.oldValue) && (
                             <span className="text-destructive">{JSON.stringify(entry.oldValue).slice(0, 40)}</span>
                           )}
-                          {entry.newValue && (
+                          {Boolean(entry.newValue) && (
                             <span className="text-emerald-600">→ {JSON.stringify(entry.newValue).slice(0, 40)}</span>
                           )}
                         </div>

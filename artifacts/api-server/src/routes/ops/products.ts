@@ -247,7 +247,7 @@ export async function decideProductProposal(req: Request, res: Response): Promis
     adminUserId: admin.userId,
     actionType: `proposal_${decision}`,
     targetType: "edit_proposal",
-    targetId: proposalId,
+    targetId: String(proposalId),
     oldValue: { status: existing[0].status },
     newValue: { status: decision },
     decisionNote: note,

@@ -125,7 +125,7 @@ export async function flagPantryItem(req: Request, res: Response): Promise<void>
     adminUserId: admin.userId,
     actionType: "flag_pantry_item",
     targetType: "pantry_item",
-    targetId: itemId,
+    targetId: String(itemId),
     newValue: { flagged: true },
     decisionNote: note ?? "Flagged for review",
   });

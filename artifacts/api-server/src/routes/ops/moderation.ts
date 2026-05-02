@@ -115,7 +115,7 @@ export async function decideModeration(req: Request, res: Response): Promise<voi
     adminUserId: admin.userId,
     actionType: `moderation_${decision}`,
     targetType: "abuse_report",
-    targetId: reportId,
+    targetId: String(reportId),
     oldValue: { status: existing[0].status },
     newValue: { status: decision },
     decisionNote: note,

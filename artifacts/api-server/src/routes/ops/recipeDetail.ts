@@ -174,7 +174,7 @@ export async function updateRecipe(req: Request, res: Response): Promise<void> {
 
   // Snapshot BEFORE update
   await snapshotRevision({
-    recipeId,
+    recipeId: String(recipeId),
     recipeKind: "official",
     snapshot: rowToDto(existing),
     adminUserId: admin.userId,
@@ -191,7 +191,7 @@ export async function updateRecipe(req: Request, res: Response): Promise<void> {
     adminUserId: admin.userId,
     actionType: "update_recipe",
     targetType: "recipe",
-    targetId: recipeId,
+    targetId: String(recipeId),
     oldValue: { fields: changedFields },
     newValue: changedFields.reduce<Record<string, unknown>>((acc, k) => {
       acc[k] = body[k];
@@ -258,7 +258,7 @@ export async function restoreRecipeRevision(req: Request, res: Response): Promis
 
   // Snapshot CURRENT before restore
   await snapshotRevision({
-    recipeId,
+    recipeId: String(recipeId),
     recipeKind: "official",
     snapshot: rowToDto(current),
     adminUserId: admin.userId,
@@ -291,7 +291,7 @@ export async function restoreRecipeRevision(req: Request, res: Response): Promis
     adminUserId: admin.userId,
     actionType: "restore_recipe_revision",
     targetType: "recipe",
-    targetId: recipeId,
+    targetId: String(recipeId),
     newValue: { revisionId },
   });
 
