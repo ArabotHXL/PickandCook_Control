@@ -55,6 +55,14 @@ export function ProductsPage() {
 
   const tabs = ["products", "barcodes", "proposals"] as const;
 
+  const activeQuery =
+    tab === "products" ? productsQuery : tab === "barcodes" ? barcodesQuery : proposalsQuery;
+  const activeData = activeQuery.data as { total?: number; limit?: number } | undefined;
+  const totalPages = Math.max(
+    1,
+    Math.ceil((activeData?.total ?? 0) / (activeData?.limit ?? 50))
+  );
+
   return (
     <div>
       <PageHeader title="Products & Barcodes" description="Product quality, unknown barcodes, and edit proposals" />
