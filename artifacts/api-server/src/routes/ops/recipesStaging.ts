@@ -58,6 +58,17 @@ function toDto(r: StagingRow) {
   };
 }
 
+// Allowed sort columns -> safe SQL expressions. Anything outside this map is
+// rejected so the `sort` query param can't be turned into SQL injection.
+const SORT_COLUMNS: Record<string, string> = {
+  title: "title",
+  source: "source",
+  status: "status",
+  mappingRate: "mapping_rate",
+  unmappedCount: "jsonb_array_length(coalesce(unmapped_ingredient_names, '[]'::jsonb))",
+  createdAt: "created_at",
+};
+
 export async function listStagingRecipes(req: Request, res: Response): Promise<void> {
   const status = (req.query.status as string) ?? "pending";
   const source = req.query.source as string | undefined;
@@ -65,6 +76,12 @@ export async function listStagingRecipes(req: Request, res: Response): Promise<v
   const page = parsePage(req.query.page);
   const limit = parseLimit(req.query.limit, { def: 50, max: 100 });
   const offset = (page - 1) * limit;
+
+  const sortKey = (req.query.sort as string) ?? "createdAt";
+  const dir = (req.query.dir as string) === "asc" ? "ASC" : "DESC";
+  const sortExpr = SORT_COLUMNS[sortKey] ?? SORT_COLUMNS.createdAt;
+  // Stable secondary sort so equal mapping_rate / status rows don't shuffle.
+  const orderBy = `${sortExpr} ${dir} NULLS LAST, created_at DESC`;
 
   if (!ALL_FILTERS.includes(status)) {
     res.status(400).json({ error: `status must be one of: ${ALL_FILTERS.join(", ")}` });
@@ -107,7 +124,7 @@ export async function listStagingRecipes(req: Request, res: Response): Promise<v
               image_url, source_url, notes, created_at, promoted_recipe_id
          FROM imported_recipes_staging
          ${where}
-         ORDER BY created_at DESC
+         ORDER BY ${orderBy}
          LIMIT $${pi} OFFSET $${pi + 1}`,
       [...params, limit, offset]
     ),

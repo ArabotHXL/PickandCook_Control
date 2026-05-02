@@ -5,6 +5,7 @@ import { apiFetch } from "@/lib/query-client";
 import { PageHeader } from "@/components/ui/page-header";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { SortableHeader, type SortState } from "@/components/SortableHeader";
 import {
   CheckCircle,
   XCircle,
@@ -321,16 +322,22 @@ export function RecipesStagingPage() {
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [sort, setSort] = useState<SortState>({ col: "createdAt", dir: "desc" });
   const { toast } = useToast();
   const qc = useQueryClient();
 
   const list = useQuery<StagingResponse>({
-    queryKey: ["ops", "staging", status, source, q, page],
+    queryKey: ["ops", "staging", status, source, q, page, sort.col, sort.dir],
     queryFn: () =>
       apiFetch(
-        `/api/ops/recipes/staging?status=${encodeURIComponent(status)}&source=${encodeURIComponent(source)}&q=${encodeURIComponent(q)}&page=${page}&limit=50`
+        `/api/ops/recipes/staging?status=${encodeURIComponent(status)}&source=${encodeURIComponent(source)}&q=${encodeURIComponent(q)}&page=${page}&limit=50&sort=${sort.col}&dir=${sort.dir}`
       ).then((r) => r.json()),
   });
+
+  const onSort = (s: SortState) => {
+    setSort(s);
+    setPage(1);
+  };
 
   const remap = useMutation({
     mutationFn: (body: { source?: string; onlyNeedsReview?: boolean }) =>
@@ -440,12 +447,12 @@ export function RecipesStagingPage() {
           <table className="w-full text-sm">
             <thead className="bg-muted/50 border-b border-border">
               <tr>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Title</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Source</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Status</th>
-                <th className="text-right px-4 py-3 font-medium text-muted-foreground">Mapping</th>
-                <th className="text-right px-4 py-3 font-medium text-muted-foreground">Unmapped</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Imported</th>
+                <SortableHeader col="title" active={sort} onChange={onSort} defaultDir="asc">Title</SortableHeader>
+                <SortableHeader col="source" active={sort} onChange={onSort} defaultDir="asc">Source</SortableHeader>
+                <SortableHeader col="status" active={sort} onChange={onSort} defaultDir="asc">Status</SortableHeader>
+                <SortableHeader col="mappingRate" active={sort} onChange={onSort} align="right">Mapping</SortableHeader>
+                <SortableHeader col="unmappedCount" active={sort} onChange={onSort} align="right">Unmapped</SortableHeader>
+                <SortableHeader col="createdAt" active={sort} onChange={onSort}>Imported</SortableHeader>
                 <th className="px-4 py-3" />
               </tr>
             </thead>
