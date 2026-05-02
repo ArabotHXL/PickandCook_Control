@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import { query, queryOne } from "./db.js";
 import { writeAuditLog } from "./audit.js";
 import type { AdminPayload } from "./auth.js";
+import { sendCsv, isCsvRequested } from "./csv.js";
 
 function getAdminUser(req: Request): AdminPayload {
   return (req as Request & { adminUser: AdminPayload }).adminUser;
@@ -63,19 +64,37 @@ export async function listUsers(req: Request, res: Response): Promise<void> {
     ),
   ]);
 
+  const dto = users.map((u) => ({
+    id: u.id,
+    email: u.email,
+    username: u.username,
+    role: u.role,
+    provider: u.provider,
+    isGuest: u.is_guest,
+    createdAt: u.created_at,
+    lastLoginAt: u.last_login_at,
+    pantryCount: parseInt(u.pantry_count, 10),
+    cookSessionCount: parseInt(u.cook_session_count, 10),
+  }));
+
+  if (isCsvRequested(req.query.format)) {
+    sendCsv(res, `users-${new Date().toISOString().slice(0, 10)}.csv`, dto, [
+      "id",
+      "email",
+      "username",
+      "role",
+      "provider",
+      "isGuest",
+      "pantryCount",
+      "cookSessionCount",
+      "createdAt",
+      "lastLoginAt",
+    ]);
+    return;
+  }
+
   res.json({
-    users: users.map((u) => ({
-      id: u.id,
-      email: u.email,
-      username: u.username,
-      role: u.role,
-      provider: u.provider,
-      isGuest: u.is_guest,
-      createdAt: u.created_at,
-      lastLoginAt: u.last_login_at,
-      pantryCount: parseInt(u.pantry_count, 10),
-      cookSessionCount: parseInt(u.cook_session_count, 10),
-    })),
+    users: dto,
     total: parseInt(countRows[0]?.n ?? "0", 10),
     page,
     limit,

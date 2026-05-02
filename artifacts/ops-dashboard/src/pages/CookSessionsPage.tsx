@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/query-client";
+import { downloadCsv } from "@/lib/csv";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
-import { ChefHat, Clock, CheckCircle, XCircle, ChevronLeft, ChevronRight } from "lucide-react";
+import { ChefHat, Clock, CheckCircle, XCircle, ChevronLeft, ChevronRight, Download } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useToast } from "@/hooks/use-toast";
 
 function useCookSessions(status: string, page: number) {
   return useQuery({
@@ -39,6 +41,20 @@ export function CookSessionsPage() {
   const [status, setStatus] = useState("");
   const [reviewStatus, setReviewStatus] = useState("pending");
   const [page, setPage] = useState(1);
+  const { toast } = useToast();
+
+  async function handleExport() {
+    try {
+      const params = new URLSearchParams({ limit: "5000" });
+      if (status) params.set("status", status);
+      await downloadCsv(
+        `/api/ops/cook-sessions?${params.toString()}`,
+        `cook-sessions-${new Date().toISOString().slice(0, 10)}.csv`
+      );
+    } catch (e) {
+      toast({ title: "Export failed", description: (e as Error).message, variant: "destructive" });
+    }
+  }
 
   const sessionsQuery = useCookSessions(status, page);
   const reviewsQuery = useDeductionReviews(reviewStatus, page);
@@ -54,7 +70,21 @@ export function CookSessionsPage() {
 
   return (
     <div>
-      <PageHeader title="Cook Sessions" description="Active and completed cooking sessions and pantry deductions" />
+      <PageHeader
+        title="Cook Sessions"
+        description="Active and completed cooking sessions and pantry deductions"
+        actions={
+          tab === "sessions" ? (
+            <button
+              onClick={handleExport}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-input bg-background text-sm hover:bg-muted"
+              data-testid="button-export-csv"
+            >
+              <Download className="w-3.5 h-3.5" /> Export CSV
+            </button>
+          ) : undefined
+        }
+      />
 
       <div className="p-6 space-y-4">
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">

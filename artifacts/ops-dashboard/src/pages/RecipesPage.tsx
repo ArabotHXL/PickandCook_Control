@@ -1,9 +1,13 @@
 import { useState } from "react";
+import { Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/query-client";
+import { downloadCsv } from "@/lib/csv";
 import { PageHeader } from "@/components/ui/page-header";
-import { Search, CheckCircle, XCircle, ChevronLeft, ChevronRight } from "lucide-react";
+import { Search, CheckCircle, XCircle, ChevronLeft, ChevronRight, Download, Eye } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { UserCreatedRecipeModal } from "@/components/UserCreatedRecipeModal";
+import { useToast } from "@/hooks/use-toast";
 
 const TIER_BADGE: Record<string, string> = {
   good: "bg-emerald-100 text-emerald-700",
@@ -47,7 +51,30 @@ export function RecipesPage() {
   const [submissionStatus, setSubmissionStatus] = useState("pending");
   const [reportStatus, setReportStatus] = useState("open");
   const [page, setPage] = useState(1);
+  const [openUgcId, setOpenUgcId] = useState<string | null>(null);
   const qc = useQueryClient();
+  const { toast } = useToast();
+
+  async function exportCurrent() {
+    try {
+      if (tab === "catalog") {
+        await downloadCsv(
+          `/api/ops/recipes?q=${encodeURIComponent(q)}&qualityTier=${tier}&limit=1000`,
+          `recipes-${new Date().toISOString().slice(0, 10)}.csv`
+        );
+      } else if (tab === "user") {
+        await downloadCsv(
+          `/api/ops/recipes/user-created?submissionStatus=${submissionStatus}&limit=1000`,
+          `user-recipes-${new Date().toISOString().slice(0, 10)}.csv`
+        );
+      } else {
+        toast({ title: "Export not available", description: "Reports CSV not yet supported." });
+        return;
+      }
+    } catch (e) {
+      toast({ title: "Export failed", description: (e as Error).message, variant: "destructive" });
+    }
+  }
 
   const recipesQuery = useRecipes(q, tier, page);
   const userRecipesQuery = useUserRecipes(submissionStatus, page);
@@ -72,7 +99,19 @@ export function RecipesPage() {
 
   return (
     <div>
-      <PageHeader title="Recipe Ops" description="Catalog quality, user submissions, reports" />
+      <PageHeader
+        title="Recipe Ops"
+        description="Catalog quality, user submissions, reports"
+        actions={
+          <button
+            onClick={exportCurrent}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-input bg-background text-sm hover:bg-muted"
+            data-testid="button-export-csv"
+          >
+            <Download className="w-3.5 h-3.5" /> Export CSV
+          </button>
+        }
+      />
 
       <div className="p-6 space-y-4">
         <div className="flex gap-1 border-b border-border">
@@ -124,25 +163,42 @@ export function RecipesPage() {
                     <tr><td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">No recipes found</td></tr>
                   ) : (
                     (recipesQuery.data?.recipes ?? []).map((r: { id: string; title: string; qualityTier: string; difficulty: string; estimatedTimeMin: number }) => (
-                      <tr key={r.id} className="hover:bg-muted/30 transition-colors">
-                        <td className="px-4 py-3 font-medium text-foreground max-w-sm truncate">{r.title}</td>
+                      <tr key={r.id} className="hover:bg-muted/30 transition-colors" data-testid={`row-recipe-${r.id}`}>
+                        <td className="px-4 py-3 font-medium text-foreground max-w-sm truncate">
+                          <Link
+                            href={`/recipes/${r.id}`}
+                            className="hover:text-primary hover:underline"
+                            data-testid={`link-recipe-${r.id}`}
+                          >
+                            {r.title}
+                          </Link>
+                        </td>
                         <td className="px-4 py-3">
                           <span className={cn("px-1.5 py-0.5 rounded text-xs font-medium", TIER_BADGE[r.qualityTier] ?? "bg-muted")}>{r.qualityTier ?? "unrated"}</span>
                         </td>
                         <td className="px-4 py-3 text-muted-foreground text-xs">{r.difficulty ?? "—"}</td>
                         <td className="px-4 py-3 text-right tabular-nums text-xs">{r.estimatedTimeMin ? `${r.estimatedTimeMin}m` : "—"}</td>
                         <td className="px-4 py-3">
-                          <select
-                            defaultValue=""
-                            onChange={(e) => { if (e.target.value) setQualityMutation.mutate({ id: r.id, qualityTier: e.target.value }); }}
-                            className="text-xs px-2 py-1 rounded border border-input bg-background focus:outline-none"
-                          >
-                            <option value="" disabled>Set tier…</option>
-                            <option value="good">Good</option>
-                            <option value="needs_rewrite">Needs rewrite</option>
-                            <option value="duplicate">Duplicate</option>
-                            <option value="unrated">Unrated</option>
-                          </select>
+                          <div className="flex items-center gap-1 justify-end">
+                            <Link
+                              href={`/recipes/${r.id}`}
+                              className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                              title="Open detail"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                            </Link>
+                            <select
+                              defaultValue=""
+                              onChange={(e) => { if (e.target.value) setQualityMutation.mutate({ id: r.id, qualityTier: e.target.value }); }}
+                              className="text-xs px-2 py-1 rounded border border-input bg-background focus:outline-none"
+                            >
+                              <option value="" disabled>Set tier…</option>
+                              <option value="good">Good</option>
+                              <option value="needs_rewrite">Needs rewrite</option>
+                              <option value="duplicate">Duplicate</option>
+                              <option value="unrated">Unrated</option>
+                            </select>
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -183,7 +239,12 @@ export function RecipesPage() {
                     <tr><td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">No recipes</td></tr>
                   ) : (
                     (userRecipesQuery.data?.recipes ?? []).map((r: { id: string; title: string; userEmail: string; submissionStatus: string; reportCount: number }) => (
-                      <tr key={r.id} className="hover:bg-muted/30 transition-colors">
+                      <tr
+                        key={r.id}
+                        onClick={() => setOpenUgcId(r.id)}
+                        className="hover:bg-muted/30 transition-colors cursor-pointer"
+                        data-testid={`row-ugc-${r.id}`}
+                      >
                         <td className="px-4 py-3 font-medium text-foreground max-w-xs truncate">{r.title}</td>
                         <td className="px-4 py-3 text-muted-foreground text-xs">{r.userEmail ?? "—"}</td>
                         <td className="px-4 py-3">
@@ -192,7 +253,7 @@ export function RecipesPage() {
                         <td className="px-4 py-3 text-right tabular-nums">{r.reportCount ?? 0}</td>
                         <td className="px-4 py-3">
                           {r.submissionStatus === "pending" && (
-                            <div className="flex gap-1">
+                            <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
                               <button onClick={() => decideUserRecipeMutation.mutate({ id: r.id, decision: "approved" })} className="p-1.5 rounded hover:bg-emerald-50 text-muted-foreground hover:text-emerald-600 transition-colors">
                                 <CheckCircle className="w-3.5 h-3.5" />
                               </button>
@@ -268,6 +329,7 @@ export function RecipesPage() {
           </div>
         )}
       </div>
+      <UserCreatedRecipeModal recipeId={openUgcId} onClose={() => setOpenUgcId(null)} />
     </div>
   );
 }

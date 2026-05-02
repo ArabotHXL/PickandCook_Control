@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/query-client";
+import { downloadCsv } from "@/lib/csv";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
-import { Receipt, CheckCircle, AlertTriangle, DollarSign, ChevronLeft, ChevronRight, X } from "lucide-react";
+import { Receipt, CheckCircle, AlertTriangle, DollarSign, ChevronLeft, ChevronRight, X, Download } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useToast } from "@/hooks/use-toast";
 
 function useReceipts(status: string, page: number) {
   return useQuery({
@@ -44,6 +46,20 @@ export function ReceiptsPage() {
   const [status, setStatus] = useState("");
   const [page, setPage] = useState(1);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const { toast } = useToast();
+
+  async function handleExport() {
+    try {
+      const params = new URLSearchParams({ limit: "5000" });
+      if (status) params.set("status", status);
+      await downloadCsv(
+        `/api/ops/receipts?${params.toString()}`,
+        `receipts-${new Date().toISOString().slice(0, 10)}.csv`
+      );
+    } catch (e) {
+      toast({ title: "Export failed", description: (e as Error).message, variant: "destructive" });
+    }
+  }
 
   const { data, isLoading } = useReceipts(status, page);
   const detailQuery = useReceiptDetail(selectedId);
@@ -55,7 +71,19 @@ export function ReceiptsPage() {
 
   return (
     <div>
-      <PageHeader title="Receipts" description="OCR pipeline and item extraction review" />
+      <PageHeader
+        title="Receipts"
+        description="OCR pipeline and item extraction review"
+        actions={
+          <button
+            onClick={handleExport}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-input bg-background text-sm hover:bg-muted"
+            data-testid="button-export-csv"
+          >
+            <Download className="w-3.5 h-3.5" /> Export CSV
+          </button>
+        }
+      />
 
       <div className="p-6 space-y-4">
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">

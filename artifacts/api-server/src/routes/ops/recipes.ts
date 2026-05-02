@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import { query } from "./db.js";
 import { writeAuditLog } from "./audit.js";
 import type { AdminPayload } from "./auth.js";
+import { sendCsv, isCsvRequested } from "./csv.js";
 
 function getAdminUser(req: Request): AdminPayload {
   return (req as Request & { adminUser: AdminPayload }).adminUser;
@@ -54,16 +55,30 @@ export async function listRecipes(req: Request, res: Response): Promise<void> {
     ),
   ]);
 
+  const dto = recipes.map((r) => ({
+    id: r.id,
+    title: r.title,
+    qualityTier: r.quality_tier,
+    qualityIssues: Array.isArray(r.quality_issues) ? r.quality_issues : [],
+    difficulty: r.difficulty,
+    estimatedTimeMin: r.estimated_time_min,
+    createdAt: r.created_at,
+  }));
+
+  if (isCsvRequested(req.query.format)) {
+    sendCsv(res, `recipes-${new Date().toISOString().slice(0, 10)}.csv`, dto, [
+      "id",
+      "title",
+      "qualityTier",
+      "difficulty",
+      "estimatedTimeMin",
+      "createdAt",
+    ]);
+    return;
+  }
+
   res.json({
-    recipes: recipes.map((r) => ({
-      id: r.id,
-      title: r.title,
-      qualityTier: r.quality_tier,
-      qualityIssues: Array.isArray(r.quality_issues) ? r.quality_issues : [],
-      difficulty: r.difficulty,
-      estimatedTimeMin: r.estimated_time_min,
-      createdAt: r.created_at,
-    })),
+    recipes: dto,
     total: parseInt(countRows[0]?.n ?? "0", 10),
     page,
     limit,
@@ -146,20 +161,37 @@ export async function listUserCreatedRecipes(req: Request, res: Response): Promi
     ),
   ]);
 
+  const dto = recipes.map((r) => ({
+    id: r.id,
+    userId: r.user_id,
+    userEmail: r.email,
+    title: r.title,
+    status: r.status,
+    submissionStatus: r.submission_status,
+    visibilityState: r.visibility_state,
+    recipeType: r.recipe_type,
+    likesCount: r.likes_count,
+    reportCount: r.report_count,
+    createdAt: r.created_at,
+  }));
+
+  if (isCsvRequested(req.query.format)) {
+    sendCsv(res, `user-recipes-${new Date().toISOString().slice(0, 10)}.csv`, dto, [
+      "id",
+      "title",
+      "userEmail",
+      "submissionStatus",
+      "visibilityState",
+      "recipeType",
+      "likesCount",
+      "reportCount",
+      "createdAt",
+    ]);
+    return;
+  }
+
   res.json({
-    recipes: recipes.map((r) => ({
-      id: r.id,
-      userId: r.user_id,
-      userEmail: r.email,
-      title: r.title,
-      status: r.status,
-      submissionStatus: r.submission_status,
-      visibilityState: r.visibility_state,
-      recipeType: r.recipe_type,
-      likesCount: r.likes_count,
-      reportCount: r.report_count,
-      createdAt: r.created_at,
-    })),
+    recipes: dto,
     total: parseInt(countRows[0]?.n ?? "0", 10),
     page,
     limit,

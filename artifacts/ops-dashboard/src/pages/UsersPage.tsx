@@ -1,9 +1,24 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/query-client";
+import { downloadCsv } from "@/lib/csv";
 import { PageHeader } from "@/components/ui/page-header";
-import { Search, ChevronLeft, ChevronRight, UserCheck, UserX } from "lucide-react";
+import { Search, ChevronLeft, ChevronRight, UserCheck, UserX, Download } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { UserDetailDrawer } from "@/components/UserDetailDrawer";
+import { useToast } from "@/hooks/use-toast";
+
+interface UserRow {
+  id: string;
+  email: string;
+  username: string;
+  role: string;
+  provider: string;
+  isGuest: boolean;
+  pantryCount: number;
+  cookSessionCount: number;
+  createdAt: string;
+}
 
 function useUsers(q: string, page: number, role: string) {
   return useQuery({
@@ -23,7 +38,20 @@ export function UsersPage() {
   const [page, setPage] = useState(1);
   const [role, setRole] = useState("");
   const [search, setSearch] = useState("");
+  const [openUser, setOpenUser] = useState<UserRow | null>(null);
   const qc = useQueryClient();
+  const { toast } = useToast();
+
+  async function handleExport() {
+    try {
+      await downloadCsv(
+        `/api/ops/users?q=${encodeURIComponent(search)}${role ? `&role=${role}` : ""}&limit=5000`,
+        `users-${new Date().toISOString().slice(0, 10)}.csv`
+      );
+    } catch (e) {
+      toast({ title: "Export failed", description: (e as Error).message, variant: "destructive" });
+    }
+  }
 
   const { data, isLoading } = useUsers(search, page, role);
 
@@ -42,7 +70,19 @@ export function UsersPage() {
 
   return (
     <div>
-      <PageHeader title="Users" description={`${total.toLocaleString()} total users`} />
+      <PageHeader
+        title="Users"
+        description={`${total.toLocaleString()} total users`}
+        actions={
+          <button
+            onClick={handleExport}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-input bg-background text-sm hover:bg-muted"
+            data-testid="button-export-csv"
+          >
+            <Download className="w-3.5 h-3.5" /> Export CSV
+          </button>
+        }
+      />
 
       <div className="p-6 space-y-4">
         <div className="flex items-center gap-3">
@@ -99,8 +139,13 @@ export function UsersPage() {
                   </td>
                 </tr>
               ) : (
-                users.map((u: { id: string; email: string; username: string; role: string; provider: string; isGuest: boolean; pantryCount: number; cookSessionCount: number; createdAt: string }) => (
-                  <tr key={u.id} className="hover:bg-muted/30 transition-colors">
+                users.map((u: UserRow) => (
+                  <tr
+                    key={u.id}
+                    onClick={() => setOpenUser(u)}
+                    className="hover:bg-muted/30 transition-colors cursor-pointer"
+                    data-testid={`row-user-${u.id}`}
+                  >
                     <td className="px-4 py-3">
                       <div>
                         <p className="font-medium text-foreground">{u.username}</p>
@@ -120,7 +165,7 @@ export function UsersPage() {
                     <td className="px-4 py-3 text-muted-foreground text-xs">
                       {u.createdAt ? new Date(u.createdAt).toLocaleDateString() : "—"}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center gap-1 justify-end">
                         {u.role !== "admin" ? (
                           <button
@@ -170,6 +215,7 @@ export function UsersPage() {
           </div>
         )}
       </div>
+      <UserDetailDrawer user={openUser} onClose={() => setOpenUser(null)} />
     </div>
   );
 }

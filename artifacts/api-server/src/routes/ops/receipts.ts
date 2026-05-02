@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { query, queryOne } from "./db.js";
+import { sendCsv, isCsvRequested } from "./csv.js";
 
 export async function listReceipts(req: Request, res: Response): Promise<void> {
   const status = req.query.status as string | undefined;
@@ -75,23 +76,41 @@ export async function listReceipts(req: Request, res: Response): Promise<void> {
     ),
   ]);
 
+  const receipts = rows.map((r) => ({
+    id: r.id,
+    userId: r.user_id,
+    userEmail: r.user_email,
+    storeName: r.store_name,
+    purchasedAt: r.purchased_at,
+    totalCents: r.total_cents,
+    status: r.status,
+    processingPhase: r.processing_phase,
+    llmModel: r.llm_model,
+    llmCostUsd: r.llm_cost_usd,
+    llmLatencyMs: r.llm_latency_ms,
+    errorMessage: r.error_message,
+    createdAt: r.created_at,
+    itemCount: parseInt(r.item_count, 10),
+  }));
+
+  if (isCsvRequested(req.query.format)) {
+    sendCsv(res, `receipts-${new Date().toISOString().slice(0, 10)}.csv`, receipts, [
+      "id",
+      "userEmail",
+      "storeName",
+      "status",
+      "totalCents",
+      "itemCount",
+      "llmModel",
+      "llmCostUsd",
+      "purchasedAt",
+      "createdAt",
+    ]);
+    return;
+  }
+
   res.json({
-    receipts: rows.map((r) => ({
-      id: r.id,
-      userId: r.user_id,
-      userEmail: r.user_email,
-      storeName: r.store_name,
-      purchasedAt: r.purchased_at,
-      totalCents: r.total_cents,
-      status: r.status,
-      processingPhase: r.processing_phase,
-      llmModel: r.llm_model,
-      llmCostUsd: r.llm_cost_usd,
-      llmLatencyMs: r.llm_latency_ms,
-      errorMessage: r.error_message,
-      createdAt: r.created_at,
-      itemCount: parseInt(r.item_count, 10),
-    })),
+    receipts,
     total: parseInt(count[0]?.n ?? "0", 10),
     page,
     limit,

@@ -1,11 +1,139 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/query-client";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, BarChart, Bar } from "recharts";
-import { DollarSign, Activity, CheckCircle, Sparkles, ChevronLeft, ChevronRight } from "lucide-react";
+import { DollarSign, Activity, CheckCircle, Sparkles, ChevronLeft, ChevronRight, AlertTriangle, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useToast } from "@/hooks/use-toast";
+
+interface AiAlert {
+  todayUsd: number;
+  yesterdayUsd: number;
+  thresholdUsd: number;
+  exceeded: boolean;
+  nearLimit: boolean;
+  todayRequests: number;
+}
+
+function useAiAlerts() {
+  return useQuery({
+    queryKey: ["ops", "ai", "alerts"],
+    queryFn: () => apiFetch("/api/ops/ai/alerts").then((r) => r.json() as Promise<AiAlert>),
+    refetchInterval: 60_000,
+  });
+}
+
+function AiCostAlertBanner() {
+  const { data } = useAiAlerts();
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState("");
+  const qc = useQueryClient();
+  const { toast } = useToast();
+
+  const setMutation = useMutation({
+    mutationFn: (thresholdUsd: number) =>
+      apiFetch("/api/ops/ai/alerts/threshold", {
+        method: "PATCH",
+        body: JSON.stringify({ thresholdUsd }),
+      }).then(async (r) => {
+        if (!r.ok) {
+          const text = await r.text();
+          let msg = `HTTP ${r.status}`;
+          try {
+            msg = (JSON.parse(text) as { error?: string }).error ?? msg;
+          } catch {
+            /* not json */
+          }
+          throw new Error(msg);
+        }
+        return r.json();
+      }),
+    onSuccess: () => {
+      toast({ title: "Threshold updated" });
+      qc.invalidateQueries({ queryKey: ["ops", "ai", "alerts"] });
+      setEditing(false);
+    },
+    onError: (e: Error) =>
+      toast({ title: "Update failed", description: e.message, variant: "destructive" }),
+  });
+
+  if (!data) return null;
+  const tone = data.exceeded ? "exceeded" : data.nearLimit ? "near" : "ok";
+
+  return (
+    <div
+      className={cn(
+        "rounded-lg border p-3 flex items-center justify-between gap-4",
+        tone === "exceeded" && "bg-destructive/10 border-destructive/30 text-destructive",
+        tone === "near" && "bg-orange-50 border-orange-300 text-orange-800",
+        tone === "ok" && "bg-emerald-50 border-emerald-200 text-emerald-800"
+      )}
+      data-testid={`banner-ai-cost-${tone}`}
+    >
+      <div className="flex items-center gap-3 text-sm">
+        {tone === "exceeded" ? (
+          <AlertTriangle className="w-4 h-4" />
+        ) : (
+          <DollarSign className="w-4 h-4" />
+        )}
+        <span data-testid="text-ai-alert-status">
+          <strong className="tabular-nums">${data.todayUsd.toFixed(4)}</strong> spent today
+          {" · "}threshold{" "}
+          <strong className="tabular-nums">${data.thresholdUsd.toFixed(2)}</strong>
+          {tone === "exceeded" && " — DAILY LIMIT EXCEEDED"}
+          {tone === "near" && " — approaching limit (≥80%)"}
+          {tone === "ok" && " — within budget"}
+        </span>
+      </div>
+      <div className="flex items-center gap-2">
+        {editing ? (
+          <>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={val}
+              onChange={(e) => setVal(e.target.value)}
+              placeholder={String(data.thresholdUsd)}
+              className="w-24 px-2 py-1 rounded border border-input bg-background text-foreground text-xs"
+              data-testid="input-threshold"
+            />
+            <button
+              onClick={() => {
+                const n = parseFloat(val);
+                if (!isNaN(n) && n > 0) setMutation.mutate(n);
+              }}
+              disabled={setMutation.isPending}
+              className="text-xs px-2 py-1 rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
+              data-testid="button-save-threshold"
+            >
+              Save
+            </button>
+            <button
+              onClick={() => setEditing(false)}
+              className="text-xs px-2 py-1 rounded border border-input bg-background text-foreground"
+            >
+              Cancel
+            </button>
+          </>
+        ) : (
+          <button
+            onClick={() => {
+              setVal(String(data.thresholdUsd));
+              setEditing(true);
+            }}
+            className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-current opacity-70 hover:opacity-100"
+            data-testid="button-edit-threshold"
+          >
+            <Settings className="w-3 h-3" /> Threshold
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function useAiSummary() {
   return useQuery({
@@ -45,6 +173,7 @@ export function AIUsagePage() {
       <PageHeader title="AI / LLM Usage" description="Cost monitoring and interaction logs" />
 
       <div className="p-6 space-y-4">
+        <AiCostAlertBanner />
         <div className="flex gap-1 border-b border-border">
           {(["summary", "interactions"] as const).map((t) => (
             <button key={t} onClick={() => setTab(t)}

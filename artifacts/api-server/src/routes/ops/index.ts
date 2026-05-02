@@ -16,6 +16,13 @@ import {
   decideUserRecipe,
   listRecipeReports,
 } from "./recipes.js";
+import {
+  getRecipeDetail,
+  updateRecipe,
+  listRecipeRevisions,
+  restoreRecipeRevision,
+  getUserRecipeDetail,
+} from "./recipeDetail.js";
 import { listModeration, decideModeration } from "./moderation.js";
 import { listAnalyticsEvents, getAnalyticsSummary } from "./analytics.js";
 import {
@@ -25,11 +32,13 @@ import {
 import { getSystemHealth, listJobRuns } from "./system.js";
 import { listAuditLog } from "./auditLog.js";
 import { getAiUsageSummary, listAiInteractions } from "./aiUsage.js";
+import { getAiAlerts, setAiCostThreshold } from "./aiAlerts.js";
 import { listCookSessions, listPantryDeductionReviews } from "./cookSessions.js";
 import { listReceipts, getReceiptDetail } from "./receipts.js";
 import { listHouseholds, getHouseholdMembers } from "./households.js";
 import { getSearchSummary, getRecsysSummary } from "./searchRecsys.js";
 import { listFlags, updateFlag } from "./flags.js";
+import { getUserTimeline } from "./userTimeline.js";
 
 export function registerOpsRoutes(app: Express): void {
   // ── Auth (no admin middleware) ───────────────────────────────────────────
@@ -43,6 +52,7 @@ export function registerOpsRoutes(app: Express): void {
   // ── Users ─────────────────────────────────────────────────────────────────
   app.get("/api/ops/users", requireAdmin, listUsers);
   app.get("/api/ops/users/:userId", requireAdmin, getUserDetail);
+  app.get("/api/ops/users/:userId/timeline", requireAdmin, getUserTimeline);
   app.patch("/api/ops/users/:userId/role", requireAdmin, setUserRole);
 
   // ── Pantry ────────────────────────────────────────────────────────────────
@@ -57,10 +67,20 @@ export function registerOpsRoutes(app: Express): void {
 
   // ── Recipes ───────────────────────────────────────────────────────────────
   app.get("/api/ops/recipes", requireAdmin, listRecipes);
-  app.patch("/api/ops/recipes/:recipeId/quality", requireAdmin, setRecipeQuality);
+  // NOTE: order matters – static segments before :recipeId
   app.get("/api/ops/recipes/user-created", requireAdmin, listUserCreatedRecipes);
   app.post("/api/ops/recipes/user-created/:recipeId/decide", requireAdmin, decideUserRecipe);
+  app.get("/api/ops/recipes/user-created/:recipeId", requireAdmin, getUserRecipeDetail);
   app.get("/api/ops/recipes/reports", requireAdmin, listRecipeReports);
+  app.get("/api/ops/recipes/:recipeId/revisions", requireAdmin, listRecipeRevisions);
+  app.post(
+    "/api/ops/recipes/:recipeId/revisions/:revisionId/restore",
+    requireAdmin,
+    restoreRecipeRevision
+  );
+  app.get("/api/ops/recipes/:recipeId", requireAdmin, getRecipeDetail);
+  app.patch("/api/ops/recipes/:recipeId", requireAdmin, updateRecipe);
+  app.patch("/api/ops/recipes/:recipeId/quality", requireAdmin, setRecipeQuality);
 
   // ── Moderation ────────────────────────────────────────────────────────────
   app.get("/api/ops/moderation", requireAdmin, listModeration);
@@ -79,6 +99,8 @@ export function registerOpsRoutes(app: Express): void {
   // ── AI / LLM Usage ────────────────────────────────────────────────────────
   app.get("/api/ops/ai/summary", requireAdmin, getAiUsageSummary);
   app.get("/api/ops/ai/interactions", requireAdmin, listAiInteractions);
+  app.get("/api/ops/ai/alerts", requireAdmin, getAiAlerts);
+  app.patch("/api/ops/ai/alerts/threshold", requireAdmin, setAiCostThreshold);
 
   // ── Cook Sessions ─────────────────────────────────────────────────────────
   app.get("/api/ops/cook-sessions", requireAdmin, listCookSessions);

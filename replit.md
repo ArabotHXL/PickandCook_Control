@@ -37,13 +37,23 @@ See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and pa
 Sidebar grouped into Overview, People, Inventory, Cooking, Insights, Operations.
 
 - Overview, Users, Pantry/Inventory, Recipes, Audit Log (pre-existing)
-- **AI / LLM Usage** — token spend & latency, broken down by model / endpoint / day
+- **Recipe Detail** (`/recipes/:id`) — full edit form (title, basics, tags, ingredient IDs, instructions), image upload via signed URL, side panel of revisions with one-click restore. Every save snapshots prior state into `recipe_revisions`.
+- **UGC Detail Modal** — clicking a row in Recipes › User Submissions opens a modal with full content, author summary (other-published / pending counts, total reports), reports list, and Approve / Reject actions.
+- **User Detail Drawer** — clicking a row on Users opens a drawer with merged event timeline (`user_events` + `analytics_events`).
+- **AI / LLM Usage** — token spend & latency, broken down by model / endpoint / day. Top of page shows live cost-alert banner (green / orange / red) backed by `system_flags.flags['ai_daily_cost_threshold_usd']` (default $5); admins can edit threshold inline.
 - **Cook Sessions** — active and historical cook sessions with progress, review status, recipe + user join
 - **Receipts** — uploaded receipts with extracted-items modal
 - **Households** — households with member count and member-detail modal (allergies, allergy groups, dislikes, dietary restrictions normalized to display strings)
 - **Analytics → Search** — top queries, zero-result rate
 - **Analytics → Recommendations** — recsys events by surface / event type / algo version
 - **System → Feature Flags** — view & toggle boolean flags per scope (optimistic UI; mutation audited)
+- **CSV export** — Recipes (catalog + user-submissions tabs), Users, Cook Sessions, Receipts list endpoints accept `?format=csv`. Helper `lib/csv.ts` triggers an authenticated browser download. Backend escapes CSV cells and prefix-neutralizes `=+-@\t\r` to prevent formula injection in spreadsheets.
+
+## Object Storage
+
+- `POST /api/storage/uploads/request-url` (admin-only) returns a signed PUT URL plus a persistent `objectPath` (`/objects/<uuid>`) to save as `imageUrl`.
+- `GET /api/storage/objects/*` is public (intentional — `<img>` tags cannot send Bearer tokens; identifiers are unguessable UUIDs and the bucket only stores ops-uploaded recipe imagery).
+- Frontend helpers: `lib/upload.ts` exports `uploadImageFile(file)` (does request-url + PUT) and `resolveImageSrc(url)` which prefixes `/objects/...` with `/api/storage` for display.
 
 ## Auth & Login
 

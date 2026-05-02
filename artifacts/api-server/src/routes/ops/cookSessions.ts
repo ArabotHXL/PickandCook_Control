@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { query } from "./db.js";
+import { sendCsv, isCsvRequested } from "./csv.js";
 
 export async function listCookSessions(req: Request, res: Response): Promise<void> {
   const status = req.query.status as string | undefined;
@@ -80,26 +81,44 @@ export async function listCookSessions(req: Request, res: Response): Promise<voi
     ),
   ]);
 
+  const sessions = rows.map((r) => ({
+    id: r.id,
+    userId: r.user_id,
+    userEmail: r.user_email,
+    recipeId: r.recipe_id,
+    recipeTitle: r.recipe_title,
+    startedAt: r.started_at,
+    finishedAt: r.finished_at,
+    totalSteps: r.total_steps,
+    completedSteps: r.completed_steps,
+    progressPct:
+      r.total_steps > 0
+        ? Math.round((r.completed_steps / r.total_steps) * 100)
+        : 0,
+    status: r.status,
+    servings: r.servings,
+    reviewId: r.review_id,
+    reviewStatus: r.review_status,
+  }));
+
+  if (isCsvRequested(req.query.format)) {
+    sendCsv(res, `cook-sessions-${new Date().toISOString().slice(0, 10)}.csv`, sessions, [
+      "id",
+      "userEmail",
+      "recipeTitle",
+      "status",
+      "progressPct",
+      "totalSteps",
+      "completedSteps",
+      "servings",
+      "startedAt",
+      "finishedAt",
+    ]);
+    return;
+  }
+
   res.json({
-    sessions: rows.map((r) => ({
-      id: r.id,
-      userId: r.user_id,
-      userEmail: r.user_email,
-      recipeId: r.recipe_id,
-      recipeTitle: r.recipe_title,
-      startedAt: r.started_at,
-      finishedAt: r.finished_at,
-      totalSteps: r.total_steps,
-      completedSteps: r.completed_steps,
-      progressPct:
-        r.total_steps > 0
-          ? Math.round((r.completed_steps / r.total_steps) * 100)
-          : 0,
-      status: r.status,
-      servings: r.servings,
-      reviewId: r.review_id,
-      reviewStatus: r.review_status,
-    })),
+    sessions,
     total: parseInt(count[0]?.n ?? "0", 10),
     page,
     limit,

@@ -9,6 +9,7 @@ import { UsersPage } from "@/pages/UsersPage";
 import { PantryPage } from "@/pages/PantryPage";
 import { ProductsPage } from "@/pages/ProductsPage";
 import { RecipesPage } from "@/pages/RecipesPage";
+import { RecipeDetailPage } from "@/pages/RecipeDetailPage";
 import { ModerationPage } from "@/pages/ModerationPage";
 import { AnalyticsPage } from "@/pages/AnalyticsPage";
 import { NotificationsPage } from "@/pages/NotificationsPage";
@@ -54,6 +55,7 @@ function AppRoutes() {
         <Route path="/pantry" component={PantryPage} />
         <Route path="/products" component={ProductsPage} />
         <Route path="/recipes" component={RecipesPage} />
+        <Route path="/recipes/:id" component={RecipeDetailPage} />
         <Route path="/cook-sessions" component={CookSessionsPage} />
         <Route path="/receipts" component={ReceiptsPage} />
         <Route path="/moderation" component={ModerationPage} />
