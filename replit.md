@@ -31,7 +31,7 @@ The project is structured as a pnpm monorepo with separate packages for differen
 -   **Type Safety**: TypeScript is used extensively across all packages to ensure type safety and improve code maintainability.
 -   **API Design**: The API server uses Express and Drizzle ORM. Admin routes (`/api/ops/*`) are protected with JWT authentication and role-based access control (`admin`, `read_only_admin`).
 -   **Database Interactions**: Drizzle ORM is used for PostgreSQL interactions, including schema migrations and data manipulation. Query parameter validation for list endpoints is centralized to prevent common errors.
--   **Data Pipeline**: A lightweight, in-process scheduler runs within the `api-server` for background jobs using `node-cron`. This worker shares the same process and database pool as the API server, with atomic locking mechanisms for job execution across multiple replicas.
+-   **Data Pipeline**: A lightweight, in-process scheduler runs within the `api-server` for background jobs using `node-cron`. This worker shares the same process and database pool as the API server, with atomic locking mechanisms for job execution across multiple replicas. Job cron expressions are configurable per-job at runtime via the System Health → Job Schedules UI; overrides are persisted in `system_flags` (id `job_schedules`) and applied with hot-reload (no server restart).
 -   **Frontend (Admin Dashboard)**: The `ops-dashboard` is built with React, Vite, React Query, and Tailwind CSS, providing a responsive and interactive user interface for administrative tasks.
 -   **Image Storage**: Object storage is managed via signed PUT URLs for uploads, and public GET access for `/api/storage/objects/*` for displaying images.
 -   **Security**:

@@ -18,6 +18,7 @@ import {
 import { cn } from "@/lib/utils";
 import { ExternalHealthCard } from "@/components/ExternalHealthCard";
 import { AlertWebhookCard } from "@/components/AlertWebhookCard";
+import { JobSchedulesCard } from "@/components/JobSchedulesCard";
 import { TwoFactorCard } from "@/components/TwoFactorCard";
 import { SortableHeader, type SortState } from "@/components/SortableHeader";
 
@@ -295,6 +296,8 @@ export function SystemPage() {
             </div>
 
             <ExternalHealthCard />
+
+            <JobSchedulesCard />
 
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
               <div className="bg-card border border-card-border rounded-lg p-5 shadow-sm">

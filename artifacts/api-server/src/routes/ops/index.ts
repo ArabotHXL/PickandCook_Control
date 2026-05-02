@@ -43,6 +43,8 @@ import {
   listJobRuns,
   clearStuckJobs,
   listAvailableJobs,
+  listJobSchedules,
+  updateJobSchedule,
   triggerJob,
   getExternalHealth,
   sendTestAlert,
@@ -173,6 +175,8 @@ export function registerOpsRoutes(app: Express): void {
   app.get("/api/ops/system/jobs", requireAdmin, listJobRuns);
   app.post("/api/ops/system/jobs/clear-stuck", requireAdminWrite, clearStuckJobs);
   app.get("/api/ops/system/jobs/available", requireAdmin, listAvailableJobs);
+  app.get("/api/ops/system/jobs/schedules", requireAdmin, listJobSchedules);
+  app.patch("/api/ops/system/jobs/:jobName/schedule", requireAdminWrite, updateJobSchedule);
   app.post("/api/ops/system/jobs/:jobName/trigger", requireAdminWrite, triggerJob);
   app.get("/api/ops/system/flags", requireAdmin, listFlags);
   app.patch("/api/ops/system/flags/:scopeId", requireAdminWrite, updateFlag);

@@ -4,8 +4,13 @@ import { parseLimit, parsePage } from "./queryParams.js";
 import { writeAuditLog } from "./audit.js";
 import type { AdminPayload } from "./auth.js";
 import { HttpError } from "../../lib/httpError.js";
+import cron from "node-cron";
 import { JOB_DEFINITIONS, getJob } from "../../jobs/registry.js";
-import { triggerJobAsync } from "../../jobs/scheduler.js";
+import {
+  triggerJobAsync,
+  getCronOverrides,
+  rescheduleJob,
+} from "../../jobs/scheduler.js";
 import { sendAlert } from "../../lib/alerts.js";
 
 function getAdminUser(req: Request): AdminPayload {
@@ -266,6 +271,98 @@ export async function listAvailableJobs(_req: Request, res: Response): Promise<v
       cronExpr: j.cronExpr,
       description: j.description,
     })),
+  });
+}
+
+export async function listJobSchedules(_req: Request, res: Response): Promise<void> {
+  const overrides = await getCronOverrides();
+  res.json({
+    schedules: JOB_DEFINITIONS.map((j) => ({
+      name: j.name,
+      description: j.description,
+      defaultCronExpr: j.cronExpr,
+      effectiveCronExpr: overrides[j.name] ?? j.cronExpr,
+      isOverride: Object.prototype.hasOwnProperty.call(overrides, j.name),
+    })),
+  });
+}
+
+export async function updateJobSchedule(req: Request, res: Response): Promise<void> {
+  const admin = getAdminUser(req);
+  const jobName = req.params["jobName"];
+  if (!jobName || typeof jobName !== "string") {
+    throw new HttpError(400, "jobName param required");
+  }
+  const def = getJob(jobName);
+  if (!def) {
+    throw new HttpError(404, `Unknown job: ${jobName}`);
+  }
+
+  const body = (req.body ?? {}) as { cronExpr?: string | null };
+  let next = body.cronExpr;
+  if (typeof next === "string") next = next.trim();
+  const clearing = next === null || next === undefined || next === "";
+
+  if (!clearing && !cron.validate(next as string)) {
+    throw new HttpError(400, `Invalid cron expression: ${String(next)}`);
+  }
+
+  // Snapshot prior value for audit only — the actual write below is atomic
+  // at the JSON-key level so two admins editing different jobs cannot clobber
+  // each other.
+  const existing = await query<{ flags: Record<string, unknown> }>(
+    `SELECT flags FROM system_flags WHERE id = 'job_schedules' LIMIT 1`
+  );
+  const before = (existing[0]?.flags ?? {}) as Record<string, unknown>;
+
+  if (clearing) {
+    // `flags - 'jobName'` removes only the one key; other admins' concurrent
+    // edits to different jobs are preserved. Upsert in case the row doesn't
+    // exist yet (no-op delete).
+    await query(
+      `INSERT INTO system_flags (id, flags, updated_at, updated_by)
+       VALUES ('job_schedules', '{}'::jsonb, NOW(), $1)
+       ON CONFLICT (id) DO UPDATE
+         SET flags = system_flags.flags - $2::text,
+             updated_at = NOW(),
+             updated_by = $1`,
+      [admin.userId, jobName]
+    );
+  } else {
+    // `flags || jsonb_build_object(...)` merges only this one key.
+    await query(
+      `INSERT INTO system_flags (id, flags, updated_at, updated_by)
+       VALUES ('job_schedules', jsonb_build_object($2::text, $3::text), NOW(), $1)
+       ON CONFLICT (id) DO UPDATE
+         SET flags = system_flags.flags || jsonb_build_object($2::text, $3::text),
+             updated_at = NOW(),
+             updated_by = $1`,
+      [admin.userId, jobName, next as string]
+    );
+  }
+
+  await writeAuditLog({
+    adminUserId: admin.userId,
+    actionType: "system.update_job_schedule",
+    targetType: "job_schedule",
+    targetId: jobName,
+    oldValue: { cronExpr: (before[jobName] as string | undefined) ?? null },
+    newValue: { cronExpr: clearing ? null : (next as string) },
+    decisionNote: clearing
+      ? `Reverted ${jobName} to default cron (${def.cronExpr})`
+      : `Set ${jobName} cron to "${next as string}"`,
+  });
+
+  // Hot-reload: stop + restart this job's cron task in-process so the new
+  // expression takes effect without a server restart.
+  const effective = await rescheduleJob(jobName);
+
+  res.json({
+    name: jobName,
+    description: def.description,
+    defaultCronExpr: def.cronExpr,
+    effectiveCronExpr: effective ?? def.cronExpr,
+    isOverride: !clearing,
   });
 }
 
