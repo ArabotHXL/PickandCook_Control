@@ -1,0 +1,289 @@
+You are a senior full-stack engineer working inside the existing Pick & Cook codebase.
+
+Goal:
+Build an internal Operations Web App for Pick & Cook so the founder/admin can monitor product health, review user-generated/corrected data, manage recipe/product quality, and support early launch operations without directly editing the database.
+
+Context:
+Pick & Cook is a pantry-first cooking app. The core loop is:
+Pantry inventory → recipe recommendation → missing items → shopping list / grocery handoff → cooking or purchase confirmation → pantry update → better future recommendations.
+
+The mobile app already has:
+- Users / profiles
+- Pantry items
+- Recipes
+- Product and barcode tables
+- Shopping list flow
+- Cook sessions
+- Recipe reports / user feedback
+- User-created recipes / variations direction
+- Notification / lifecycle tables
+- Analytics events
+- Product/barcode learning or correction concepts
+
+Do not rebuild the consumer app.
+Do not change the mobile UX unless required to support admin operations.
+Do not introduce a separate database.
+Use the existing database schema, auth pattern, API conventions, and styling approach where possible.
+
+Objective:
+Create a secure internal web dashboard at `/ops` or `/admin` that helps manage the app during launch and early growth.
+
+Core Requirements:
+
+1. Admin Access Control
+- Add an internal admin role/check.
+- Only approved admin users can access the operations web app.
+- Non-admin users must be blocked.
+- Do not expose admin pages in the normal mobile/user navigation.
+- Add server-side authorization checks for every ops API route.
+- Never rely only on frontend hiding.
+
+2. Operations Home Dashboard
+Create an overview page with key launch metrics:
+- Total users
+- New users in last 7 days
+- Active users in last 7 days
+- Pantry items created
+- Average pantry items per user
+- Recipe views
+- Saved recipes
+- Cook sessions
+- Shopping list actions
+- Barcode scans
+- Unknown barcode scans
+- User reports
+- Pending moderation items
+- Failed or incomplete operational workflows
+
+Display metrics as cards.
+Add simple trend comparison where possible:
+- today vs yesterday
+- last 7 days vs previous 7 days
+
+3. User Behavior Funnel
+Create a funnel dashboard for the core product loop:
+Step 1: User signed up / opened app
+Step 2: Added pantry item
+Step 3: Viewed recipe recommendation
+Step 4: Saved recipe or added missing item
+Step 5: Started cook session
+Step 6: Completed cook session
+Step 7: Pantry updated after cooking or shopping
+
+For each step show:
+- Count
+- Conversion rate from previous step
+- Drop-off percentage
+
+This should help identify where users are getting stuck.
+
+4. Pantry Operations
+Create a Pantry Ops page:
+- Search users by email/name/id
+- View a user’s pantry items
+- Show item source if available: manual, barcode scan, receipt, shopping return, system-generated
+- Show stale or suspicious pantry records:
+  - duplicate items
+  - missing quantity
+  - missing unit
+  - old items without update
+  - items that look invalid
+- Do not allow destructive deletion in MVP.
+- Allow admin to flag records for review or mark as resolved if a review table exists.
+
+5. Barcode / Product Review Queue
+Create a Product Data Ops page:
+- Show unknown barcode scans
+- Show user-submitted product corrections
+- Show duplicate barcode/product mapping candidates
+- Show products missing important fields:
+  - name
+  - brand
+  - category
+  - image
+  - nutrition data if expected
+- Allow admin to approve, reject, or mark as needs research.
+- Keep an audit log for every admin action.
+- If existing tables support private vs public product corrections, respect that distinction.
+
+6. Recipe Quality Operations
+Create a Recipe Ops page:
+- List recipes by status:
+  - good
+  - needs_rewrite
+  - duplicate
+  - unrated
+  - reported
+  - user-created pending review
+- Show recipe report reasons from users.
+- Allow admin to:
+  - mark recipe as needs_rewrite
+  - mark duplicate
+  - approve user-created recipe
+  - reject user-created recipe
+  - add internal review note
+- Do not auto-delete recipes.
+- If recipe variations exist, show parent recipe and variation chain.
+
+7. Moderation Queue
+Create a Moderation page for:
+- Public user-created recipes
+- Recipe variations
+- Barcode teaching submissions
+- Product corrections
+- Abuse reports
+- Inappropriate content reports
+
+Each queue item should show:
+- Submitted by
+- Submitted date
+- Content type
+- Risk level if available
+- Evidence fields
+- Current status
+- Admin decision note
+- Prior snapshot if rollback is supported
+
+Admin actions:
+- Approve
+- Reject
+- Needs more info
+- Escalate
+- Roll back if supported
+
+Every decision must be recorded in an audit table or existing moderation/action log.
+
+8. Analytics Events Explorer
+Create an Analytics page:
+- Search and filter analytics events
+- Filter by:
+  - event name
+  - user id
+  - date range
+  - app surface
+  - recipe id
+  - barcode/product id if applicable
+- Show event timeline per user.
+- Add common saved views:
+  - onboarding events
+  - pantry add events
+  - recommendation events
+  - shopping events
+  - cook session events
+  - report/error events
+
+This is for debugging early user behavior.
+
+9. Notification / Lifecycle Ops
+Create a Notification Ops page if notification tables exist:
+- Show active notification templates
+- Show notification logs
+- Show delivery attempts / failures if available
+- Show engagement if available
+- Allow admin to enable/disable templates only if safe.
+- Do not send bulk notifications in MVP unless a separate confirmation and permission system exists.
+
+10. System Health / Data Jobs
+Create a System Health page:
+- Show recent import/backfill/job runs if job_runs or equivalent table exists.
+- Show failed jobs.
+- Show last successful recipe import.
+- Show last successful product/barcode import.
+- Show last notification job.
+- Show recent server errors if available.
+- If there is no job table, create a lightweight read-only placeholder page and document what table is needed later.
+
+11. UI Requirements
+Use a clean internal admin layout:
+- Left sidebar navigation
+- Top summary header
+- Search and filter controls
+- Tables with pagination
+- Status badges
+- Detail drawer or detail modal
+- Clear empty states
+- Clear loading and error states
+
+Navigation:
+- Overview
+- Users
+- Pantry Ops
+- Product / Barcode Ops
+- Recipe Ops
+- Moderation
+- Analytics
+- Notifications
+- System Health
+- Audit Log
+
+12. Engineering Requirements
+- Keep implementation modular.
+- Do not add everything into one giant routes file.
+- Create dedicated ops routes/modules.
+- Reuse existing DB connection and query patterns.
+- Add types for API responses.
+- Avoid unsafe `any` where possible.
+- Add server-side pagination for large tables.
+- Add indexes only if clearly needed and safe.
+- Do not break existing mobile app routes.
+- Do not rename existing tables or columns unless absolutely required.
+- If schema changes are needed, create migration files and document them.
+
+13. Audit Log
+Every admin write action must record:
+- admin_user_id
+- action_type
+- target_type
+- target_id
+- old_value or prior snapshot if available
+- new_value or decision payload
+- decision_note
+- created_at
+
+If an audit table already exists, use it.
+If not, add a minimal `ops_audit_log` table.
+
+14. Safety Rules
+- Admin dashboard must be read-heavy.
+- Avoid destructive actions in MVP.
+- Prefer status changes over deletes.
+- Prefer “needs_review” over automatic correction.
+- Do not expose secrets, API keys, tokens, or private auth data.
+- Do not show full sensitive user data unless needed.
+- Do not allow mass update actions in MVP.
+
+15. Acceptance Criteria
+The work is complete when:
+- `/ops` or `/admin` is accessible only to admins.
+- Non-admin users are blocked by server-side checks.
+- Overview dashboard loads real metrics from the database.
+- Funnel dashboard shows the core Pick & Cook loop.
+- Product/barcode review queue works.
+- Recipe/report review queue works.
+- Moderation page supports approve/reject/needs info decisions.
+- Analytics explorer can filter events.
+- Audit log records all admin decisions.
+- Existing mobile app still works.
+- No existing production logic is broken.
+- Basic error/loading/empty states exist.
+- README or internal notes explain how to create the first admin user.
+
+Implementation Order:
+1. Inspect current schema, auth, routes, and frontend structure.
+2. Identify existing tables relevant to users, pantry, recipes, barcode/product, reports, analytics, notifications, and job runs.
+3. Create admin authorization helper.
+4. Create ops route group and frontend route shell.
+5. Build Overview dashboard.
+6. Build core read-only tables.
+7. Add moderation/admin actions with audit log.
+8. Add analytics explorer.
+9. Add system health page.
+10. Test admin access, non-admin blocking, and existing app flows.
+
+Deliverables:
+- Code changes
+- Migration files if needed
+- Admin access setup instructions
+- Brief implementation summary
+- List of tables used
+- List of follow-up improvements

@@ -10,6 +10,29 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: ops-auth
+    description: Ops admin authentication
+  - name: ops-overview
+    description: Ops overview dashboard metrics
+  - name: ops-users
+    description: Ops user management
+  - name: ops-pantry
+    description: Ops pantry operations
+  - name: ops-products
+    description: Ops product/barcode operations
+  - name: ops-recipes
+    description: Ops recipe operations
+  - name: ops-moderation
+    description: Ops moderation queue
+  - name: ops-analytics
+    description: Ops analytics explorer
+  - name: ops-notifications
+    description: Ops notification operations
+  - name: ops-system
+    description: Ops system health
+  - name: ops-audit
+    description: Ops audit log
+
 paths:
   /healthz:
     get:
@@ -24,6 +47,722 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  # ── Auth ──────────────────────────────────────────────────────────────────
+  /ops/auth/login:
+    post:
+      operationId: opsLogin
+      tags: [ops-auth]
+      summary: Admin login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpsLoginBody"
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsLoginResponse"
+        "401":
+          description: Invalid credentials or not admin
+
+  /ops/auth/me:
+    get:
+      operationId: opsMe
+      tags: [ops-auth]
+      summary: Get current admin user
+      responses:
+        "200":
+          description: Current admin user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsAdminUser"
+
+  # ── Overview ──────────────────────────────────────────────────────────────
+  /ops/overview/metrics:
+    get:
+      operationId: getOpsOverviewMetrics
+      tags: [ops-overview]
+      summary: Get dashboard overview metrics
+      responses:
+        "200":
+          description: Overview metrics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsOverviewMetrics"
+
+  /ops/overview/funnel:
+    get:
+      operationId: getOpsFunnel
+      tags: [ops-overview]
+      summary: Get user behavior funnel
+      parameters:
+        - name: days
+          in: query
+          schema:
+            type: integer
+            default: 30
+      responses:
+        "200":
+          description: Funnel steps
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsFunnelResponse"
+
+  # ── Users ─────────────────────────────────────────────────────────────────
+  /ops/users:
+    get:
+      operationId: getOpsUsers
+      tags: [ops-users]
+      summary: List users
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: role
+          in: query
+          schema:
+            type: string
+        - name: sort
+          in: query
+          schema:
+            type: string
+            default: createdAt_desc
+      responses:
+        "200":
+          description: Paginated user list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsUserListResponse"
+
+  /ops/users/{userId}:
+    get:
+      operationId: getOpsUser
+      tags: [ops-users]
+      summary: Get user detail
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: User detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsUserDetail"
+
+  /ops/users/{userId}/role:
+    patch:
+      operationId: setOpsUserRole
+      tags: [ops-users]
+      summary: Set user role (admin only)
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetUserRoleBody"
+      responses:
+        "200":
+          description: Role updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+
+  # ── Pantry Ops ────────────────────────────────────────────────────────────
+  /ops/pantry/items:
+    get:
+      operationId: getOpsPantryItems
+      tags: [ops-pantry]
+      summary: List pantry items with filters
+      parameters:
+        - name: userId
+          in: query
+          schema:
+            type: string
+        - name: issue
+          in: query
+          schema:
+            type: string
+            enum: [duplicate, missing_quantity, missing_unit, stale, all]
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: Pantry items list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsPantryListResponse"
+
+  /ops/pantry/items/{itemId}/flag:
+    post:
+      operationId: flagOpsPantryItem
+      tags: [ops-pantry]
+      summary: Flag a pantry item for review
+      parameters:
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FlagItemBody"
+      responses:
+        "200":
+          description: Item flagged
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+
+  # ── Products ──────────────────────────────────────────────────────────────
+  /ops/products:
+    get:
+      operationId: getOpsProducts
+      tags: [ops-products]
+      summary: List products with quality filters
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+        - name: issue
+          in: query
+          schema:
+            type: string
+            enum: [missing_name, missing_brand, missing_category, missing_image, missing_nutrition, all]
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: Product list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsProductListResponse"
+
+  /ops/products/barcodes/unknown:
+    get:
+      operationId: getOpsUnknownBarcodes
+      tags: [ops-products]
+      summary: List unknown barcode scans
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: Unknown barcode events
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsUnknownBarcodesResponse"
+
+  /ops/products/proposals:
+    get:
+      operationId: getOpsProductProposals
+      tags: [ops-products]
+      summary: List product edit proposals
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            default: pending
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: Edit proposals
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsProposalListResponse"
+
+  /ops/products/proposals/{proposalId}/decide:
+    post:
+      operationId: decideOpsProductProposal
+      tags: [ops-products]
+      summary: Approve/reject/defer a product proposal
+      parameters:
+        - name: proposalId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProposalDecisionBody"
+      responses:
+        "200":
+          description: Decision recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+
+  # ── Recipes ───────────────────────────────────────────────────────────────
+  /ops/recipes:
+    get:
+      operationId: getOpsRecipes
+      tags: [ops-recipes]
+      summary: List recipes with quality filters
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+        - name: qualityTier
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: Recipes list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsRecipeListResponse"
+
+  /ops/recipes/{recipeId}/quality:
+    patch:
+      operationId: setOpsRecipeQuality
+      tags: [ops-recipes]
+      summary: Update recipe quality tier or add review note
+      parameters:
+        - name: recipeId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecipeQualityBody"
+      responses:
+        "200":
+          description: Quality updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+
+  /ops/recipes/user-created:
+    get:
+      operationId: getOpsUserCreatedRecipes
+      tags: [ops-recipes]
+      summary: List user-created recipes pending review
+      parameters:
+        - name: submissionStatus
+          in: query
+          schema:
+            type: string
+            default: pending
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: User created recipes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsUserRecipeListResponse"
+
+  /ops/recipes/user-created/{recipeId}/decide:
+    post:
+      operationId: decideOpsUserRecipe
+      tags: [ops-recipes]
+      summary: Approve/reject a user-created recipe
+      parameters:
+        - name: recipeId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecipeDecisionBody"
+      responses:
+        "200":
+          description: Decision recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+
+  /ops/recipes/reports:
+    get:
+      operationId: getOpsRecipeReports
+      tags: [ops-recipes]
+      summary: List recipe reports
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            default: open
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: Recipe reports
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsRecipeReportListResponse"
+
+  # ── Moderation ────────────────────────────────────────────────────────────
+  /ops/moderation:
+    get:
+      operationId: getOpsModeration
+      tags: [ops-moderation]
+      summary: List moderation queue items
+      parameters:
+        - name: contentType
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            default: pending
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: Moderation items
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsModerationListResponse"
+
+  /ops/moderation/{reportId}/decide:
+    post:
+      operationId: decideOpsModeration
+      tags: [ops-moderation]
+      summary: Make moderation decision
+      parameters:
+        - name: reportId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ModerationDecisionBody"
+      responses:
+        "200":
+          description: Decision recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+
+  # ── Analytics ─────────────────────────────────────────────────────────────
+  /ops/analytics/events:
+    get:
+      operationId: getOpsAnalyticsEvents
+      tags: [ops-analytics]
+      summary: Search/filter analytics events
+      parameters:
+        - name: event
+          in: query
+          schema:
+            type: string
+        - name: userId
+          in: query
+          schema:
+            type: string
+        - name: from
+          in: query
+          schema:
+            type: string
+        - name: to
+          in: query
+          schema:
+            type: string
+        - name: view
+          in: query
+          schema:
+            type: string
+            enum: [onboarding, pantry, recommendation, shopping, cook, reports, all]
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+      responses:
+        "200":
+          description: Analytics events
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsAnalyticsEventsResponse"
+
+  /ops/analytics/summary:
+    get:
+      operationId: getOpsAnalyticsSummary
+      tags: [ops-analytics]
+      summary: Get event counts summary for last N days
+      parameters:
+        - name: days
+          in: query
+          schema:
+            type: integer
+            default: 7
+      responses:
+        "200":
+          description: Event summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsAnalyticsSummaryResponse"
+
+  # ── Notifications ─────────────────────────────────────────────────────────
+  /ops/notifications/templates:
+    get:
+      operationId: getOpsNotificationTemplates
+      tags: [ops-notifications]
+      summary: List notification templates
+      responses:
+        "200":
+          description: Templates
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsNotificationTemplatesResponse"
+
+  /ops/notifications/log:
+    get:
+      operationId: getOpsNotificationLog
+      tags: [ops-notifications]
+      summary: List notification log entries
+      parameters:
+        - name: userId
+          in: query
+          schema:
+            type: string
+        - name: category
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: Notification log
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsNotificationLogResponse"
+
+  # ── System Health ─────────────────────────────────────────────────────────
+  /ops/system/health:
+    get:
+      operationId: getOpsSystemHealth
+      tags: [ops-system]
+      summary: Get system health overview
+      responses:
+        "200":
+          description: System health
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsSystemHealthResponse"
+
+  /ops/system/jobs:
+    get:
+      operationId: getOpsJobRuns
+      tags: [ops-system]
+      summary: List recent job runs
+      parameters:
+        - name: jobName
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: Job runs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsJobRunsResponse"
+
+  # ── Audit Log ─────────────────────────────────────────────────────────────
+  /ops/audit:
+    get:
+      operationId: getOpsAuditLog
+      tags: [ops-audit]
+      summary: List audit log entries
+      parameters:
+        - name: adminUserId
+          in: query
+          schema:
+            type: string
+        - name: targetType
+          in: query
+          schema:
+            type: string
+        - name: actionType
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: Audit log entries
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsAuditLogResponse"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +773,916 @@ components:
       required:
         - status
 
+    OkResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        message:
+          type: string
+      required:
+        - ok
+
+    # ── Auth ────────────────────────────────────────────────────────────────
+    OpsLoginBody:
+      type: object
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+      required:
+        - email
+        - password
+
+    OpsLoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+        user:
+          $ref: "#/components/schemas/OpsAdminUser"
+      required:
+        - token
+        - user
+
+    OpsAdminUser:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        username:
+          type: string
+        role:
+          type: string
+      required:
+        - id
+        - email
+        - username
+        - role
+
+    # ── Overview ────────────────────────────────────────────────────────────
+    OpsMetricCard:
+      type: object
+      properties:
+        label:
+          type: string
+        value:
+          type: number
+        prev:
+          type: number
+        trend:
+          type: number
+      required:
+        - label
+        - value
+
+    OpsOverviewMetrics:
+      type: object
+      properties:
+        totalUsers:
+          $ref: "#/components/schemas/OpsMetricCard"
+        newUsers7d:
+          $ref: "#/components/schemas/OpsMetricCard"
+        activeUsers7d:
+          $ref: "#/components/schemas/OpsMetricCard"
+        pantryItemsCreated:
+          $ref: "#/components/schemas/OpsMetricCard"
+        avgPantryItemsPerUser:
+          $ref: "#/components/schemas/OpsMetricCard"
+        recipeViews:
+          $ref: "#/components/schemas/OpsMetricCard"
+        savedRecipes:
+          $ref: "#/components/schemas/OpsMetricCard"
+        cookSessions:
+          $ref: "#/components/schemas/OpsMetricCard"
+        shoppingActions:
+          $ref: "#/components/schemas/OpsMetricCard"
+        barcodeScans:
+          $ref: "#/components/schemas/OpsMetricCard"
+        unknownBarcodeScans:
+          $ref: "#/components/schemas/OpsMetricCard"
+        userReports:
+          $ref: "#/components/schemas/OpsMetricCard"
+        pendingModeration:
+          $ref: "#/components/schemas/OpsMetricCard"
+      required:
+        - totalUsers
+        - newUsers7d
+        - activeUsers7d
+        - pantryItemsCreated
+        - cookSessions
+        - pendingModeration
+
+    OpsFunnelStep:
+      type: object
+      properties:
+        step:
+          type: integer
+        label:
+          type: string
+        count:
+          type: number
+        conversionFromPrev:
+          type: number
+        dropOff:
+          type: number
+      required:
+        - step
+        - label
+        - count
+
+    OpsFunnelResponse:
+      type: object
+      properties:
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/OpsFunnelStep"
+        days:
+          type: integer
+      required:
+        - steps
+        - days
+
+    # ── Users ───────────────────────────────────────────────────────────────
+    OpsUserRow:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        username:
+          type: string
+        role:
+          type: string
+        provider:
+          type: string
+        isGuest:
+          type: boolean
+        createdAt:
+          type: string
+        lastLoginAt:
+          type: string
+        pantryCount:
+          type: integer
+        cookSessionCount:
+          type: integer
+      required:
+        - id
+        - username
+        - role
+
+    OpsUserListResponse:
+      type: object
+      properties:
+        users:
+          type: array
+          items:
+            $ref: "#/components/schemas/OpsUserRow"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required:
+        - users
+        - total
+        - page
+        - limit
+
+    OpsUserDetail:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        username:
+          type: string
+        role:
+          type: string
+        provider:
+          type: string
+        isGuest:
+          type: boolean
+        createdAt:
+          type: string
+        lastLoginAt:
+          type: string
+        displayName:
+          type: string
+        pantryItemCount:
+          type: integer
+        cookSessionCount:
+          type: integer
+        userRecipeCount:
+          type: integer
+        shoppingItemCount:
+          type: integer
+        recentEvents:
+          type: array
+          items:
+            type: object
+      required:
+        - id
+        - username
+        - role
+
+    SetUserRoleBody:
+      type: object
+      properties:
+        role:
+          type: string
+          enum: [user, admin]
+        note:
+          type: string
+      required:
+        - role
+
+    # ── Pantry ──────────────────────────────────────────────────────────────
+    OpsPantryItem:
+      type: object
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        userEmail:
+          type: string
+        ingredientId:
+          type: string
+        quantity:
+          type: number
+        unit:
+          type: string
+        sourceType:
+          type: string
+        addedAt:
+          type: string
+        updatedAt:
+          type: string
+        issues:
+          type: array
+          items:
+            type: string
+      required:
+        - id
+        - userId
+        - ingredientId
+
+    OpsPantryListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/OpsPantryItem"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required:
+        - items
+        - total
+        - page
+        - limit
+
+    FlagItemBody:
+      type: object
+      properties:
+        note:
+          type: string
+      required: []
+
+    # ── Products ─────────────────────────────────────────────────────────────
+    OpsProductRow:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        brand:
+          type: string
+        department:
+          type: string
+        issues:
+          type: array
+          items:
+            type: string
+        barcodeCount:
+          type: integer
+        createdAt:
+          type: string
+      required:
+        - id
+        - name
+
+    OpsProductListResponse:
+      type: object
+      properties:
+        products:
+          type: array
+          items:
+            $ref: "#/components/schemas/OpsProductRow"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required:
+        - products
+        - total
+        - page
+        - limit
+
+    OpsUnknownBarcodeRow:
+      type: object
+      properties:
+        barcode:
+          type: string
+        scanCount:
+          type: integer
+        lastScannedAt:
+          type: string
+        userIds:
+          type: array
+          items:
+            type: string
+      required:
+        - barcode
+        - scanCount
+
+    OpsUnknownBarcodesResponse:
+      type: object
+      properties:
+        barcodes:
+          type: array
+          items:
+            $ref: "#/components/schemas/OpsUnknownBarcodeRow"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required:
+        - barcodes
+        - total
+        - page
+        - limit
+
+    OpsProposalRow:
+      type: object
+      properties:
+        id:
+          type: string
+        proposalType:
+          type: string
+        riskLevel:
+          type: string
+        objectType:
+          type: string
+        objectId:
+          type: string
+        status:
+          type: string
+        createdBy:
+          type: string
+        creatorEmail:
+          type: string
+        reviewedBy:
+          type: string
+        reviewNote:
+          type: string
+        createdAt:
+          type: string
+        payload:
+          type: object
+      required:
+        - id
+        - proposalType
+        - status
+        - objectType
+
+    OpsProposalListResponse:
+      type: object
+      properties:
+        proposals:
+          type: array
+          items:
+            $ref: "#/components/schemas/OpsProposalRow"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required:
+        - proposals
+        - total
+        - page
+        - limit
+
+    ProposalDecisionBody:
+      type: object
+      properties:
+        decision:
+          type: string
+          enum: [approved, rejected, needs_research]
+        note:
+          type: string
+      required:
+        - decision
+
+    # ── Recipes ──────────────────────────────────────────────────────────────
+    OpsRecipeRow:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        qualityTier:
+          type: string
+        qualityIssues:
+          type: array
+          items:
+            type: string
+        difficulty:
+          type: string
+        estimatedTimeMin:
+          type: number
+        createdAt:
+          type: string
+      required:
+        - id
+        - title
+        - qualityTier
+
+    OpsRecipeListResponse:
+      type: object
+      properties:
+        recipes:
+          type: array
+          items:
+            $ref: "#/components/schemas/OpsRecipeRow"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required:
+        - recipes
+        - total
+        - page
+        - limit
+
+    RecipeQualityBody:
+      type: object
+      properties:
+        qualityTier:
+          type: string
+          enum: [good, needs_rewrite, duplicate, unrated]
+        note:
+          type: string
+      required: []
+
+    OpsUserRecipeRow:
+      type: object
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        userEmail:
+          type: string
+        title:
+          type: string
+        status:
+          type: string
+        submissionStatus:
+          type: string
+        visibilityState:
+          type: string
+        recipeType:
+          type: string
+        likesCount:
+          type: integer
+        reportCount:
+          type: integer
+        createdAt:
+          type: string
+      required:
+        - id
+        - title
+        - submissionStatus
+
+    OpsUserRecipeListResponse:
+      type: object
+      properties:
+        recipes:
+          type: array
+          items:
+            $ref: "#/components/schemas/OpsUserRecipeRow"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required:
+        - recipes
+        - total
+        - page
+        - limit
+
+    RecipeDecisionBody:
+      type: object
+      properties:
+        decision:
+          type: string
+          enum: [approved, rejected, needs_more_info]
+        note:
+          type: string
+      required:
+        - decision
+
+    OpsRecipeReportRow:
+      type: object
+      properties:
+        id:
+          type: string
+        recipeId:
+          type: string
+        recipeTitle:
+          type: string
+        reporterUserId:
+          type: string
+        reporterEmail:
+          type: string
+        reason:
+          type: string
+        details:
+          type: string
+        status:
+          type: string
+        createdAt:
+          type: string
+      required:
+        - id
+        - recipeId
+        - reason
+        - status
+
+    OpsRecipeReportListResponse:
+      type: object
+      properties:
+        reports:
+          type: array
+          items:
+            $ref: "#/components/schemas/OpsRecipeReportRow"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required:
+        - reports
+        - total
+        - page
+        - limit
+
+    # ── Moderation ───────────────────────────────────────────────────────────
+    OpsModerationItem:
+      type: object
+      properties:
+        id:
+          type: string
+        contentType:
+          type: string
+        contentId:
+          type: string
+        reason:
+          type: string
+        details:
+          type: string
+        status:
+          type: string
+        reporterUserId:
+          type: string
+        reporterEmail:
+          type: string
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - contentType
+        - reason
+        - status
+
+    OpsModerationListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/OpsModerationItem"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required:
+        - items
+        - total
+        - page
+        - limit
+
+    ModerationDecisionBody:
+      type: object
+      properties:
+        decision:
+          type: string
+          enum: [approved, rejected, needs_more_info, escalated]
+        note:
+          type: string
+      required:
+        - decision
+
+    # ── Analytics ─────────────────────────────────────────────────────────────
+    OpsAnalyticsEventRow:
+      type: object
+      properties:
+        id:
+          type: string
+        event:
+          type: string
+        userId:
+          type: string
+        sessionId:
+          type: string
+        properties:
+          type: object
+        createdAt:
+          type: string
+      required:
+        - id
+        - event
+        - createdAt
+
+    OpsAnalyticsEventsResponse:
+      type: object
+      properties:
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/OpsAnalyticsEventRow"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required:
+        - events
+        - total
+        - page
+        - limit
+
+    OpsAnalyticsSummaryItem:
+      type: object
+      properties:
+        event:
+          type: string
+        count:
+          type: integer
+      required:
+        - event
+        - count
+
+    OpsAnalyticsSummaryResponse:
+      type: object
+      properties:
+        topEvents:
+          type: array
+          items:
+            $ref: "#/components/schemas/OpsAnalyticsSummaryItem"
+        totalEvents:
+          type: integer
+        uniqueUsers:
+          type: integer
+        days:
+          type: integer
+      required:
+        - topEvents
+        - totalEvents
+        - uniqueUsers
+        - days
+
+    # ── Notifications ─────────────────────────────────────────────────────────
+    OpsNotificationTemplate:
+      type: object
+      properties:
+        id:
+          type: string
+        stage:
+          type: string
+        title:
+          type: string
+        body:
+          type: string
+        enabled:
+          type: boolean
+      required:
+        - id
+        - title
+
+    OpsNotificationTemplatesResponse:
+      type: object
+      properties:
+        templates:
+          type: array
+          items:
+            $ref: "#/components/schemas/OpsNotificationTemplate"
+      required:
+        - templates
+
+    OpsNotificationLogRow:
+      type: object
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        category:
+          type: string
+        title:
+          type: string
+        body:
+          type: string
+        status:
+          type: string
+        sentAt:
+          type: string
+      required:
+        - id
+        - userId
+        - title
+        - status
+
+    OpsNotificationLogResponse:
+      type: object
+      properties:
+        logs:
+          type: array
+          items:
+            $ref: "#/components/schemas/OpsNotificationLogRow"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required:
+        - logs
+        - total
+        - page
+        - limit
+
+    # ── System ────────────────────────────────────────────────────────────────
+    OpsJobRun:
+      type: object
+      properties:
+        id:
+          type: string
+        jobName:
+          type: string
+        status:
+          type: string
+        startedAt:
+          type: string
+        finishedAt:
+          type: string
+        durationMs:
+          type: integer
+        errorMessage:
+          type: string
+        triggeredBy:
+          type: string
+        summary:
+          type: object
+      required:
+        - id
+        - jobName
+        - status
+
+    OpsJobRunsResponse:
+      type: object
+      properties:
+        jobs:
+          type: array
+          items:
+            $ref: "#/components/schemas/OpsJobRun"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required:
+        - jobs
+        - total
+        - page
+        - limit
+
+    OpsSystemHealthResponse:
+      type: object
+      properties:
+        lastRecipeImport:
+          $ref: "#/components/schemas/OpsJobRun"
+        lastBarcodeImport:
+          $ref: "#/components/schemas/OpsJobRun"
+        lastNotificationJob:
+          $ref: "#/components/schemas/OpsJobRun"
+        recentFailedJobs:
+          type: array
+          items:
+            $ref: "#/components/schemas/OpsJobRun"
+        totalJobsToday:
+          type: integer
+        failedJobsToday:
+          type: integer
+        llmCostToday:
+          type: number
+        llmCostThisWeek:
+          type: number
+        dbSizeBytes:
+          type: integer
+      required:
+        - recentFailedJobs
+        - totalJobsToday
+        - failedJobsToday
+
+    # ── Audit ─────────────────────────────────────────────────────────────────
+    OpsAuditEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        adminUserId:
+          type: string
+        adminEmail:
+          type: string
+        actionType:
+          type: string
+        targetType:
+          type: string
+        targetId:
+          type: string
+        oldValue:
+          type: object
+        newValue:
+          type: object
+        decisionNote:
+          type: string
+        createdAt:
+          type: string
+      required:
+        - id
+        - adminUserId
+        - actionType
+        - targetType
+        - createdAt
+
+    OpsAuditLogResponse:
+      type: object
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/OpsAuditEntry"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required:
+        - entries
+        - total
+        - page
+        - limit

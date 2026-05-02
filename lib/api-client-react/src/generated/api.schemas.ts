@@ -8,3 +8,578 @@
 export interface HealthStatus {
   status: string;
 }
+
+export interface OkResponse {
+  ok: boolean;
+  message?: string;
+}
+
+export interface OpsLoginBody {
+  email: string;
+  password: string;
+}
+
+export interface OpsAdminUser {
+  id: string;
+  email: string;
+  username: string;
+  role: string;
+}
+
+export interface OpsLoginResponse {
+  token: string;
+  user: OpsAdminUser;
+}
+
+export interface OpsMetricCard {
+  label: string;
+  value: number;
+  prev?: number;
+  trend?: number;
+}
+
+export interface OpsOverviewMetrics {
+  totalUsers: OpsMetricCard;
+  newUsers7d: OpsMetricCard;
+  activeUsers7d: OpsMetricCard;
+  pantryItemsCreated: OpsMetricCard;
+  avgPantryItemsPerUser?: OpsMetricCard;
+  recipeViews?: OpsMetricCard;
+  savedRecipes?: OpsMetricCard;
+  cookSessions: OpsMetricCard;
+  shoppingActions?: OpsMetricCard;
+  barcodeScans?: OpsMetricCard;
+  unknownBarcodeScans?: OpsMetricCard;
+  userReports?: OpsMetricCard;
+  pendingModeration: OpsMetricCard;
+}
+
+export interface OpsFunnelStep {
+  step: number;
+  label: string;
+  count: number;
+  conversionFromPrev?: number;
+  dropOff?: number;
+}
+
+export interface OpsFunnelResponse {
+  steps: OpsFunnelStep[];
+  days: number;
+}
+
+export interface OpsUserRow {
+  id: string;
+  email?: string;
+  username: string;
+  role: string;
+  provider?: string;
+  isGuest?: boolean;
+  createdAt?: string;
+  lastLoginAt?: string;
+  pantryCount?: number;
+  cookSessionCount?: number;
+}
+
+export interface OpsUserListResponse {
+  users: OpsUserRow[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export type OpsUserDetailRecentEventsItem = { [key: string]: unknown };
+
+export interface OpsUserDetail {
+  id: string;
+  email?: string;
+  username: string;
+  role: string;
+  provider?: string;
+  isGuest?: boolean;
+  createdAt?: string;
+  lastLoginAt?: string;
+  displayName?: string;
+  pantryItemCount?: number;
+  cookSessionCount?: number;
+  userRecipeCount?: number;
+  shoppingItemCount?: number;
+  recentEvents?: OpsUserDetailRecentEventsItem[];
+}
+
+export type SetUserRoleBodyRole =
+  (typeof SetUserRoleBodyRole)[keyof typeof SetUserRoleBodyRole];
+
+export const SetUserRoleBodyRole = {
+  user: "user",
+  admin: "admin",
+} as const;
+
+export interface SetUserRoleBody {
+  role: SetUserRoleBodyRole;
+  note?: string;
+}
+
+export interface OpsPantryItem {
+  id: string;
+  userId: string;
+  userEmail?: string;
+  ingredientId: string;
+  quantity?: number;
+  unit?: string;
+  sourceType?: string;
+  addedAt?: string;
+  updatedAt?: string;
+  issues?: string[];
+}
+
+export interface OpsPantryListResponse {
+  items: OpsPantryItem[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface FlagItemBody {
+  note?: string;
+}
+
+export interface OpsProductRow {
+  id: string;
+  name: string;
+  brand?: string;
+  department?: string;
+  issues?: string[];
+  barcodeCount?: number;
+  createdAt?: string;
+}
+
+export interface OpsProductListResponse {
+  products: OpsProductRow[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface OpsUnknownBarcodeRow {
+  barcode: string;
+  scanCount: number;
+  lastScannedAt?: string;
+  userIds?: string[];
+}
+
+export interface OpsUnknownBarcodesResponse {
+  barcodes: OpsUnknownBarcodeRow[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export type OpsProposalRowPayload = { [key: string]: unknown };
+
+export interface OpsProposalRow {
+  id: string;
+  proposalType: string;
+  riskLevel?: string;
+  objectType: string;
+  objectId?: string;
+  status: string;
+  createdBy?: string;
+  creatorEmail?: string;
+  reviewedBy?: string;
+  reviewNote?: string;
+  createdAt?: string;
+  payload?: OpsProposalRowPayload;
+}
+
+export interface OpsProposalListResponse {
+  proposals: OpsProposalRow[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export type ProposalDecisionBodyDecision =
+  (typeof ProposalDecisionBodyDecision)[keyof typeof ProposalDecisionBodyDecision];
+
+export const ProposalDecisionBodyDecision = {
+  approved: "approved",
+  rejected: "rejected",
+  needs_research: "needs_research",
+} as const;
+
+export interface ProposalDecisionBody {
+  decision: ProposalDecisionBodyDecision;
+  note?: string;
+}
+
+export interface OpsRecipeRow {
+  id: string;
+  title: string;
+  qualityTier: string;
+  qualityIssues?: string[];
+  difficulty?: string;
+  estimatedTimeMin?: number;
+  createdAt?: string;
+}
+
+export interface OpsRecipeListResponse {
+  recipes: OpsRecipeRow[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export type RecipeQualityBodyQualityTier =
+  (typeof RecipeQualityBodyQualityTier)[keyof typeof RecipeQualityBodyQualityTier];
+
+export const RecipeQualityBodyQualityTier = {
+  good: "good",
+  needs_rewrite: "needs_rewrite",
+  duplicate: "duplicate",
+  unrated: "unrated",
+} as const;
+
+export interface RecipeQualityBody {
+  qualityTier?: RecipeQualityBodyQualityTier;
+  note?: string;
+}
+
+export interface OpsUserRecipeRow {
+  id: string;
+  userId?: string;
+  userEmail?: string;
+  title: string;
+  status?: string;
+  submissionStatus: string;
+  visibilityState?: string;
+  recipeType?: string;
+  likesCount?: number;
+  reportCount?: number;
+  createdAt?: string;
+}
+
+export interface OpsUserRecipeListResponse {
+  recipes: OpsUserRecipeRow[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export type RecipeDecisionBodyDecision =
+  (typeof RecipeDecisionBodyDecision)[keyof typeof RecipeDecisionBodyDecision];
+
+export const RecipeDecisionBodyDecision = {
+  approved: "approved",
+  rejected: "rejected",
+  needs_more_info: "needs_more_info",
+} as const;
+
+export interface RecipeDecisionBody {
+  decision: RecipeDecisionBodyDecision;
+  note?: string;
+}
+
+export interface OpsRecipeReportRow {
+  id: string;
+  recipeId: string;
+  recipeTitle?: string;
+  reporterUserId?: string;
+  reporterEmail?: string;
+  reason: string;
+  details?: string;
+  status: string;
+  createdAt?: string;
+}
+
+export interface OpsRecipeReportListResponse {
+  reports: OpsRecipeReportRow[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface OpsModerationItem {
+  id: string;
+  contentType: string;
+  contentId?: string;
+  reason: string;
+  details?: string;
+  status: string;
+  reporterUserId?: string;
+  reporterEmail?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface OpsModerationListResponse {
+  items: OpsModerationItem[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export type ModerationDecisionBodyDecision =
+  (typeof ModerationDecisionBodyDecision)[keyof typeof ModerationDecisionBodyDecision];
+
+export const ModerationDecisionBodyDecision = {
+  approved: "approved",
+  rejected: "rejected",
+  needs_more_info: "needs_more_info",
+  escalated: "escalated",
+} as const;
+
+export interface ModerationDecisionBody {
+  decision: ModerationDecisionBodyDecision;
+  note?: string;
+}
+
+export type OpsAnalyticsEventRowProperties = { [key: string]: unknown };
+
+export interface OpsAnalyticsEventRow {
+  id: string;
+  event: string;
+  userId?: string;
+  sessionId?: string;
+  properties?: OpsAnalyticsEventRowProperties;
+  createdAt: string;
+}
+
+export interface OpsAnalyticsEventsResponse {
+  events: OpsAnalyticsEventRow[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface OpsAnalyticsSummaryItem {
+  event: string;
+  count: number;
+}
+
+export interface OpsAnalyticsSummaryResponse {
+  topEvents: OpsAnalyticsSummaryItem[];
+  totalEvents: number;
+  uniqueUsers: number;
+  days: number;
+}
+
+export interface OpsNotificationTemplate {
+  id: string;
+  stage?: string;
+  title: string;
+  body?: string;
+  enabled?: boolean;
+}
+
+export interface OpsNotificationTemplatesResponse {
+  templates: OpsNotificationTemplate[];
+}
+
+export interface OpsNotificationLogRow {
+  id: string;
+  userId: string;
+  category?: string;
+  title: string;
+  body?: string;
+  status: string;
+  sentAt?: string;
+}
+
+export interface OpsNotificationLogResponse {
+  logs: OpsNotificationLogRow[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export type OpsJobRunSummary = { [key: string]: unknown };
+
+export interface OpsJobRun {
+  id: string;
+  jobName: string;
+  status: string;
+  startedAt?: string;
+  finishedAt?: string;
+  durationMs?: number;
+  errorMessage?: string;
+  triggeredBy?: string;
+  summary?: OpsJobRunSummary;
+}
+
+export interface OpsJobRunsResponse {
+  jobs: OpsJobRun[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface OpsSystemHealthResponse {
+  lastRecipeImport?: OpsJobRun;
+  lastBarcodeImport?: OpsJobRun;
+  lastNotificationJob?: OpsJobRun;
+  recentFailedJobs: OpsJobRun[];
+  totalJobsToday: number;
+  failedJobsToday: number;
+  llmCostToday?: number;
+  llmCostThisWeek?: number;
+  dbSizeBytes?: number;
+}
+
+export type OpsAuditEntryOldValue = { [key: string]: unknown };
+
+export type OpsAuditEntryNewValue = { [key: string]: unknown };
+
+export interface OpsAuditEntry {
+  id: string;
+  adminUserId: string;
+  adminEmail?: string;
+  actionType: string;
+  targetType: string;
+  targetId?: string;
+  oldValue?: OpsAuditEntryOldValue;
+  newValue?: OpsAuditEntryNewValue;
+  decisionNote?: string;
+  createdAt: string;
+}
+
+export interface OpsAuditLogResponse {
+  entries: OpsAuditEntry[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export type GetOpsFunnelParams = {
+  days?: number;
+};
+
+export type GetOpsUsersParams = {
+  q?: string;
+  page?: number;
+  limit?: number;
+  role?: string;
+  sort?: string;
+};
+
+export type GetOpsPantryItemsParams = {
+  userId?: string;
+  issue?: GetOpsPantryItemsIssue;
+  page?: number;
+  limit?: number;
+};
+
+export type GetOpsPantryItemsIssue =
+  (typeof GetOpsPantryItemsIssue)[keyof typeof GetOpsPantryItemsIssue];
+
+export const GetOpsPantryItemsIssue = {
+  duplicate: "duplicate",
+  missing_quantity: "missing_quantity",
+  missing_unit: "missing_unit",
+  stale: "stale",
+  all: "all",
+} as const;
+
+export type GetOpsProductsParams = {
+  q?: string;
+  issue?: GetOpsProductsIssue;
+  page?: number;
+  limit?: number;
+};
+
+export type GetOpsProductsIssue =
+  (typeof GetOpsProductsIssue)[keyof typeof GetOpsProductsIssue];
+
+export const GetOpsProductsIssue = {
+  missing_name: "missing_name",
+  missing_brand: "missing_brand",
+  missing_category: "missing_category",
+  missing_image: "missing_image",
+  missing_nutrition: "missing_nutrition",
+  all: "all",
+} as const;
+
+export type GetOpsUnknownBarcodesParams = {
+  page?: number;
+  limit?: number;
+};
+
+export type GetOpsProductProposalsParams = {
+  status?: string;
+  page?: number;
+  limit?: number;
+};
+
+export type GetOpsRecipesParams = {
+  q?: string;
+  qualityTier?: string;
+  page?: number;
+  limit?: number;
+};
+
+export type GetOpsUserCreatedRecipesParams = {
+  submissionStatus?: string;
+  page?: number;
+  limit?: number;
+};
+
+export type GetOpsRecipeReportsParams = {
+  status?: string;
+  page?: number;
+  limit?: number;
+};
+
+export type GetOpsModerationParams = {
+  contentType?: string;
+  status?: string;
+  page?: number;
+  limit?: number;
+};
+
+export type GetOpsAnalyticsEventsParams = {
+  event?: string;
+  userId?: string;
+  from?: string;
+  to?: string;
+  view?: GetOpsAnalyticsEventsView;
+  page?: number;
+  limit?: number;
+};
+
+export type GetOpsAnalyticsEventsView =
+  (typeof GetOpsAnalyticsEventsView)[keyof typeof GetOpsAnalyticsEventsView];
+
+export const GetOpsAnalyticsEventsView = {
+  onboarding: "onboarding",
+  pantry: "pantry",
+  recommendation: "recommendation",
+  shopping: "shopping",
+  cook: "cook",
+  reports: "reports",
+  all: "all",
+} as const;
+
+export type GetOpsAnalyticsSummaryParams = {
+  days?: number;
+};
+
+export type GetOpsNotificationLogParams = {
+  userId?: string;
+  category?: string;
+  page?: number;
+  limit?: number;
+};
+
+export type GetOpsJobRunsParams = {
+  jobName?: string;
+  status?: string;
+  page?: number;
+  limit?: number;
+};
+
+export type GetOpsAuditLogParams = {
+  adminUserId?: string;
+  targetType?: string;
+  actionType?: string;
+  page?: number;
+  limit?: number;
+};

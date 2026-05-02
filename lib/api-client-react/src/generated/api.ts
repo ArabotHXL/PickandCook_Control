@@ -5,18 +5,67 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import type {
+  MutationFunction,
   QueryFunction,
   QueryKey,
+  UseMutationOptions,
+  UseMutationResult,
   UseQueryOptions,
   UseQueryResult,
 } from "@tanstack/react-query";
 
-import type { HealthStatus } from "./api.schemas";
+import type {
+  FlagItemBody,
+  GetOpsAnalyticsEventsParams,
+  GetOpsAnalyticsSummaryParams,
+  GetOpsAuditLogParams,
+  GetOpsFunnelParams,
+  GetOpsJobRunsParams,
+  GetOpsModerationParams,
+  GetOpsNotificationLogParams,
+  GetOpsPantryItemsParams,
+  GetOpsProductProposalsParams,
+  GetOpsProductsParams,
+  GetOpsRecipeReportsParams,
+  GetOpsRecipesParams,
+  GetOpsUnknownBarcodesParams,
+  GetOpsUserCreatedRecipesParams,
+  GetOpsUsersParams,
+  HealthStatus,
+  ModerationDecisionBody,
+  OkResponse,
+  OpsAdminUser,
+  OpsAnalyticsEventsResponse,
+  OpsAnalyticsSummaryResponse,
+  OpsAuditLogResponse,
+  OpsFunnelResponse,
+  OpsJobRunsResponse,
+  OpsLoginBody,
+  OpsLoginResponse,
+  OpsModerationListResponse,
+  OpsNotificationLogResponse,
+  OpsNotificationTemplatesResponse,
+  OpsOverviewMetrics,
+  OpsPantryListResponse,
+  OpsProductListResponse,
+  OpsProposalListResponse,
+  OpsRecipeListResponse,
+  OpsRecipeReportListResponse,
+  OpsSystemHealthResponse,
+  OpsUnknownBarcodesResponse,
+  OpsUserDetail,
+  OpsUserListResponse,
+  OpsUserRecipeListResponse,
+  ProposalDecisionBody,
+  RecipeDecisionBody,
+  RecipeQualityBody,
+  SetUserRoleBody,
+} from "./api.schemas";
 
 import { customFetch } from "../custom-fetch";
-import type { ErrorType } from "../custom-fetch";
+import type { ErrorType, BodyType } from "../custom-fetch";
 
 type AwaitedInput<T> = PromiseLike<T> | T;
 
@@ -92,6 +141,2483 @@ export function useHealthCheck<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getHealthCheckQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Admin login
+ */
+export const getOpsLoginUrl = () => {
+  return `/api/ops/auth/login`;
+};
+
+export const opsLogin = async (
+  opsLoginBody: OpsLoginBody,
+  options?: RequestInit,
+): Promise<OpsLoginResponse> => {
+  return customFetch<OpsLoginResponse>(getOpsLoginUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(opsLoginBody),
+  });
+};
+
+export const getOpsLoginMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof opsLogin>>,
+    TError,
+    { data: BodyType<OpsLoginBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof opsLogin>>,
+  TError,
+  { data: BodyType<OpsLoginBody> },
+  TContext
+> => {
+  const mutationKey = ["opsLogin"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof opsLogin>>,
+    { data: BodyType<OpsLoginBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return opsLogin(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type OpsLoginMutationResult = NonNullable<
+  Awaited<ReturnType<typeof opsLogin>>
+>;
+export type OpsLoginMutationBody = BodyType<OpsLoginBody>;
+export type OpsLoginMutationError = ErrorType<void>;
+
+/**
+ * @summary Admin login
+ */
+export const useOpsLogin = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof opsLogin>>,
+    TError,
+    { data: BodyType<OpsLoginBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof opsLogin>>,
+  TError,
+  { data: BodyType<OpsLoginBody> },
+  TContext
+> => {
+  return useMutation(getOpsLoginMutationOptions(options));
+};
+
+/**
+ * @summary Get current admin user
+ */
+export const getOpsMeUrl = () => {
+  return `/api/ops/auth/me`;
+};
+
+export const opsMe = async (options?: RequestInit): Promise<OpsAdminUser> => {
+  return customFetch<OpsAdminUser>(getOpsMeUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getOpsMeQueryKey = () => {
+  return [`/api/ops/auth/me`] as const;
+};
+
+export const getOpsMeQueryOptions = <
+  TData = Awaited<ReturnType<typeof opsMe>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<Awaited<ReturnType<typeof opsMe>>, TError, TData>;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getOpsMeQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof opsMe>>> = ({
+    signal,
+  }) => opsMe({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof opsMe>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type OpsMeQueryResult = NonNullable<Awaited<ReturnType<typeof opsMe>>>;
+export type OpsMeQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get current admin user
+ */
+
+export function useOpsMe<
+  TData = Awaited<ReturnType<typeof opsMe>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<Awaited<ReturnType<typeof opsMe>>, TError, TData>;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getOpsMeQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get dashboard overview metrics
+ */
+export const getGetOpsOverviewMetricsUrl = () => {
+  return `/api/ops/overview/metrics`;
+};
+
+export const getOpsOverviewMetrics = async (
+  options?: RequestInit,
+): Promise<OpsOverviewMetrics> => {
+  return customFetch<OpsOverviewMetrics>(getGetOpsOverviewMetricsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetOpsOverviewMetricsQueryKey = () => {
+  return [`/api/ops/overview/metrics`] as const;
+};
+
+export const getGetOpsOverviewMetricsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getOpsOverviewMetrics>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getOpsOverviewMetrics>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetOpsOverviewMetricsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getOpsOverviewMetrics>>
+  > = ({ signal }) => getOpsOverviewMetrics({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getOpsOverviewMetrics>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetOpsOverviewMetricsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getOpsOverviewMetrics>>
+>;
+export type GetOpsOverviewMetricsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get dashboard overview metrics
+ */
+
+export function useGetOpsOverviewMetrics<
+  TData = Awaited<ReturnType<typeof getOpsOverviewMetrics>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getOpsOverviewMetrics>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetOpsOverviewMetricsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get user behavior funnel
+ */
+export const getGetOpsFunnelUrl = (params?: GetOpsFunnelParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/ops/overview/funnel?${stringifiedParams}`
+    : `/api/ops/overview/funnel`;
+};
+
+export const getOpsFunnel = async (
+  params?: GetOpsFunnelParams,
+  options?: RequestInit,
+): Promise<OpsFunnelResponse> => {
+  return customFetch<OpsFunnelResponse>(getGetOpsFunnelUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetOpsFunnelQueryKey = (params?: GetOpsFunnelParams) => {
+  return [`/api/ops/overview/funnel`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetOpsFunnelQueryOptions = <
+  TData = Awaited<ReturnType<typeof getOpsFunnel>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetOpsFunnelParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getOpsFunnel>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetOpsFunnelQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getOpsFunnel>>> = ({
+    signal,
+  }) => getOpsFunnel(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getOpsFunnel>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetOpsFunnelQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getOpsFunnel>>
+>;
+export type GetOpsFunnelQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get user behavior funnel
+ */
+
+export function useGetOpsFunnel<
+  TData = Awaited<ReturnType<typeof getOpsFunnel>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetOpsFunnelParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getOpsFunnel>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetOpsFunnelQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List users
+ */
+export const getGetOpsUsersUrl = (params?: GetOpsUsersParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/ops/users?${stringifiedParams}`
+    : `/api/ops/users`;
+};
+
+export const getOpsUsers = async (
+  params?: GetOpsUsersParams,
+  options?: RequestInit,
+): Promise<OpsUserListResponse> => {
+  return customFetch<OpsUserListResponse>(getGetOpsUsersUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetOpsUsersQueryKey = (params?: GetOpsUsersParams) => {
+  return [`/api/ops/users`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetOpsUsersQueryOptions = <
+  TData = Awaited<ReturnType<typeof getOpsUsers>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetOpsUsersParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getOpsUsers>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetOpsUsersQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getOpsUsers>>> = ({
+    signal,
+  }) => getOpsUsers(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getOpsUsers>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetOpsUsersQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getOpsUsers>>
+>;
+export type GetOpsUsersQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List users
+ */
+
+export function useGetOpsUsers<
+  TData = Awaited<ReturnType<typeof getOpsUsers>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetOpsUsersParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getOpsUsers>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetOpsUsersQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get user detail
+ */
+export const getGetOpsUserUrl = (userId: string) => {
+  return `/api/ops/users/${userId}`;
+};
+
+export const getOpsUser = async (
+  userId: string,
+  options?: RequestInit,
+): Promise<OpsUserDetail> => {
+  return customFetch<OpsUserDetail>(getGetOpsUserUrl(userId), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetOpsUserQueryKey = (userId: string) => {
+  return [`/api/ops/users/${userId}`] as const;
+};
+
+export const getGetOpsUserQueryOptions = <
+  TData = Awaited<ReturnType<typeof getOpsUser>>,
+  TError = ErrorType<unknown>,
+>(
+  userId: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getOpsUser>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetOpsUserQueryKey(userId);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getOpsUser>>> = ({
+    signal,
+  }) => getOpsUser(userId, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!userId,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getOpsUser>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetOpsUserQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getOpsUser>>
+>;
+export type GetOpsUserQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get user detail
+ */
+
+export function useGetOpsUser<
+  TData = Awaited<ReturnType<typeof getOpsUser>>,
+  TError = ErrorType<unknown>,
+>(
+  userId: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getOpsUser>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetOpsUserQueryOptions(userId, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Set user role (admin only)
+ */
+export const getSetOpsUserRoleUrl = (userId: string) => {
+  return `/api/ops/users/${userId}/role`;
+};
+
+export const setOpsUserRole = async (
+  userId: string,
+  setUserRoleBody: SetUserRoleBody,
+  options?: RequestInit,
+): Promise<OkResponse> => {
+  return customFetch<OkResponse>(getSetOpsUserRoleUrl(userId), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(setUserRoleBody),
+  });
+};
+
+export const getSetOpsUserRoleMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof setOpsUserRole>>,
+    TError,
+    { userId: string; data: BodyType<SetUserRoleBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof setOpsUserRole>>,
+  TError,
+  { userId: string; data: BodyType<SetUserRoleBody> },
+  TContext
+> => {
+  const mutationKey = ["setOpsUserRole"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof setOpsUserRole>>,
+    { userId: string; data: BodyType<SetUserRoleBody> }
+  > = (props) => {
+    const { userId, data } = props ?? {};
+
+    return setOpsUserRole(userId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SetOpsUserRoleMutationResult = NonNullable<
+  Awaited<ReturnType<typeof setOpsUserRole>>
+>;
+export type SetOpsUserRoleMutationBody = BodyType<SetUserRoleBody>;
+export type SetOpsUserRoleMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Set user role (admin only)
+ */
+export const useSetOpsUserRole = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof setOpsUserRole>>,
+    TError,
+    { userId: string; data: BodyType<SetUserRoleBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof setOpsUserRole>>,
+  TError,
+  { userId: string; data: BodyType<SetUserRoleBody> },
+  TContext
+> => {
+  return useMutation(getSetOpsUserRoleMutationOptions(options));
+};
+
+/**
+ * @summary List pantry items with filters
+ */
+export const getGetOpsPantryItemsUrl = (params?: GetOpsPantryItemsParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/ops/pantry/items?${stringifiedParams}`
+    : `/api/ops/pantry/items`;
+};
+
+export const getOpsPantryItems = async (
+  params?: GetOpsPantryItemsParams,
+  options?: RequestInit,
+): Promise<OpsPantryListResponse> => {
+  return customFetch<OpsPantryListResponse>(getGetOpsPantryItemsUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetOpsPantryItemsQueryKey = (
+  params?: GetOpsPantryItemsParams,
+) => {
+  return [`/api/ops/pantry/items`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetOpsPantryItemsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getOpsPantryItems>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetOpsPantryItemsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getOpsPantryItems>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetOpsPantryItemsQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getOpsPantryItems>>
+  > = ({ signal }) => getOpsPantryItems(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getOpsPantryItems>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetOpsPantryItemsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getOpsPantryItems>>
+>;
+export type GetOpsPantryItemsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List pantry items with filters
+ */
+
+export function useGetOpsPantryItems<
+  TData = Awaited<ReturnType<typeof getOpsPantryItems>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetOpsPantryItemsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getOpsPantryItems>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetOpsPantryItemsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Flag a pantry item for review
+ */
+export const getFlagOpsPantryItemUrl = (itemId: string) => {
+  return `/api/ops/pantry/items/${itemId}/flag`;
+};
+
+export const flagOpsPantryItem = async (
+  itemId: string,
+  flagItemBody: FlagItemBody,
+  options?: RequestInit,
+): Promise<OkResponse> => {
+  return customFetch<OkResponse>(getFlagOpsPantryItemUrl(itemId), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(flagItemBody),
+  });
+};
+
+export const getFlagOpsPantryItemMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof flagOpsPantryItem>>,
+    TError,
+    { itemId: string; data: BodyType<FlagItemBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof flagOpsPantryItem>>,
+  TError,
+  { itemId: string; data: BodyType<FlagItemBody> },
+  TContext
+> => {
+  const mutationKey = ["flagOpsPantryItem"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof flagOpsPantryItem>>,
+    { itemId: string; data: BodyType<FlagItemBody> }
+  > = (props) => {
+    const { itemId, data } = props ?? {};
+
+    return flagOpsPantryItem(itemId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type FlagOpsPantryItemMutationResult = NonNullable<
+  Awaited<ReturnType<typeof flagOpsPantryItem>>
+>;
+export type FlagOpsPantryItemMutationBody = BodyType<FlagItemBody>;
+export type FlagOpsPantryItemMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Flag a pantry item for review
+ */
+export const useFlagOpsPantryItem = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof flagOpsPantryItem>>,
+    TError,
+    { itemId: string; data: BodyType<FlagItemBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof flagOpsPantryItem>>,
+  TError,
+  { itemId: string; data: BodyType<FlagItemBody> },
+  TContext
+> => {
+  return useMutation(getFlagOpsPantryItemMutationOptions(options));
+};
+
+/**
+ * @summary List products with quality filters
+ */
+export const getGetOpsProductsUrl = (params?: GetOpsProductsParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/ops/products?${stringifiedParams}`
+    : `/api/ops/products`;
+};
+
+export const getOpsProducts = async (
+  params?: GetOpsProductsParams,
+  options?: RequestInit,
+): Promise<OpsProductListResponse> => {
+  return customFetch<OpsProductListResponse>(getGetOpsProductsUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetOpsProductsQueryKey = (params?: GetOpsProductsParams) => {
+  return [`/api/ops/products`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetOpsProductsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getOpsProducts>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetOpsProductsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getOpsProducts>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetOpsProductsQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getOpsProducts>>> = ({
+    signal,
+  }) => getOpsProducts(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getOpsProducts>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetOpsProductsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getOpsProducts>>
+>;
+export type GetOpsProductsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List products with quality filters
+ */
+
+export function useGetOpsProducts<
+  TData = Awaited<ReturnType<typeof getOpsProducts>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetOpsProductsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getOpsProducts>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetOpsProductsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List unknown barcode scans
+ */
+export const getGetOpsUnknownBarcodesUrl = (
+  params?: GetOpsUnknownBarcodesParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/ops/products/barcodes/unknown?${stringifiedParams}`
+    : `/api/ops/products/barcodes/unknown`;
+};
+
+export const getOpsUnknownBarcodes = async (
+  params?: GetOpsUnknownBarcodesParams,
+  options?: RequestInit,
+): Promise<OpsUnknownBarcodesResponse> => {
+  return customFetch<OpsUnknownBarcodesResponse>(
+    getGetOpsUnknownBarcodesUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetOpsUnknownBarcodesQueryKey = (
+  params?: GetOpsUnknownBarcodesParams,
+) => {
+  return [
+    `/api/ops/products/barcodes/unknown`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getGetOpsUnknownBarcodesQueryOptions = <
+  TData = Awaited<ReturnType<typeof getOpsUnknownBarcodes>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetOpsUnknownBarcodesParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getOpsUnknownBarcodes>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetOpsUnknownBarcodesQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getOpsUnknownBarcodes>>
+  > = ({ signal }) =>
+    getOpsUnknownBarcodes(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getOpsUnknownBarcodes>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetOpsUnknownBarcodesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getOpsUnknownBarcodes>>
+>;
+export type GetOpsUnknownBarcodesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List unknown barcode scans
+ */
+
+export function useGetOpsUnknownBarcodes<
+  TData = Awaited<ReturnType<typeof getOpsUnknownBarcodes>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetOpsUnknownBarcodesParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getOpsUnknownBarcodes>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetOpsUnknownBarcodesQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List product edit proposals
+ */
+export const getGetOpsProductProposalsUrl = (
+  params?: GetOpsProductProposalsParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/ops/products/proposals?${stringifiedParams}`
+    : `/api/ops/products/proposals`;
+};
+
+export const getOpsProductProposals = async (
+  params?: GetOpsProductProposalsParams,
+  options?: RequestInit,
+): Promise<OpsProposalListResponse> => {
+  return customFetch<OpsProposalListResponse>(
+    getGetOpsProductProposalsUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetOpsProductProposalsQueryKey = (
+  params?: GetOpsProductProposalsParams,
+) => {
+  return [`/api/ops/products/proposals`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetOpsProductProposalsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getOpsProductProposals>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetOpsProductProposalsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getOpsProductProposals>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetOpsProductProposalsQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getOpsProductProposals>>
+  > = ({ signal }) =>
+    getOpsProductProposals(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getOpsProductProposals>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetOpsProductProposalsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getOpsProductProposals>>
+>;
+export type GetOpsProductProposalsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List product edit proposals
+ */
+
+export function useGetOpsProductProposals<
+  TData = Awaited<ReturnType<typeof getOpsProductProposals>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetOpsProductProposalsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getOpsProductProposals>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetOpsProductProposalsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Approve/reject/defer a product proposal
+ */
+export const getDecideOpsProductProposalUrl = (proposalId: string) => {
+  return `/api/ops/products/proposals/${proposalId}/decide`;
+};
+
+export const decideOpsProductProposal = async (
+  proposalId: string,
+  proposalDecisionBody: ProposalDecisionBody,
+  options?: RequestInit,
+): Promise<OkResponse> => {
+  return customFetch<OkResponse>(getDecideOpsProductProposalUrl(proposalId), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(proposalDecisionBody),
+  });
+};
+
+export const getDecideOpsProductProposalMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof decideOpsProductProposal>>,
+    TError,
+    { proposalId: string; data: BodyType<ProposalDecisionBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof decideOpsProductProposal>>,
+  TError,
+  { proposalId: string; data: BodyType<ProposalDecisionBody> },
+  TContext
+> => {
+  const mutationKey = ["decideOpsProductProposal"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof decideOpsProductProposal>>,
+    { proposalId: string; data: BodyType<ProposalDecisionBody> }
+  > = (props) => {
+    const { proposalId, data } = props ?? {};
+
+    return decideOpsProductProposal(proposalId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DecideOpsProductProposalMutationResult = NonNullable<
+  Awaited<ReturnType<typeof decideOpsProductProposal>>
+>;
+export type DecideOpsProductProposalMutationBody =
+  BodyType<ProposalDecisionBody>;
+export type DecideOpsProductProposalMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Approve/reject/defer a product proposal
+ */
+export const useDecideOpsProductProposal = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof decideOpsProductProposal>>,
+    TError,
+    { proposalId: string; data: BodyType<ProposalDecisionBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof decideOpsProductProposal>>,
+  TError,
+  { proposalId: string; data: BodyType<ProposalDecisionBody> },
+  TContext
+> => {
+  return useMutation(getDecideOpsProductProposalMutationOptions(options));
+};
+
+/**
+ * @summary List recipes with quality filters
+ */
+export const getGetOpsRecipesUrl = (params?: GetOpsRecipesParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/ops/recipes?${stringifiedParams}`
+    : `/api/ops/recipes`;
+};
+
+export const getOpsRecipes = async (
+  params?: GetOpsRecipesParams,
+  options?: RequestInit,
+): Promise<OpsRecipeListResponse> => {
+  return customFetch<OpsRecipeListResponse>(getGetOpsRecipesUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetOpsRecipesQueryKey = (params?: GetOpsRecipesParams) => {
+  return [`/api/ops/recipes`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetOpsRecipesQueryOptions = <
+  TData = Awaited<ReturnType<typeof getOpsRecipes>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetOpsRecipesParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getOpsRecipes>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetOpsRecipesQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getOpsRecipes>>> = ({
+    signal,
+  }) => getOpsRecipes(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getOpsRecipes>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetOpsRecipesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getOpsRecipes>>
+>;
+export type GetOpsRecipesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List recipes with quality filters
+ */
+
+export function useGetOpsRecipes<
+  TData = Awaited<ReturnType<typeof getOpsRecipes>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetOpsRecipesParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getOpsRecipes>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetOpsRecipesQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Update recipe quality tier or add review note
+ */
+export const getSetOpsRecipeQualityUrl = (recipeId: string) => {
+  return `/api/ops/recipes/${recipeId}/quality`;
+};
+
+export const setOpsRecipeQuality = async (
+  recipeId: string,
+  recipeQualityBody: RecipeQualityBody,
+  options?: RequestInit,
+): Promise<OkResponse> => {
+  return customFetch<OkResponse>(getSetOpsRecipeQualityUrl(recipeId), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(recipeQualityBody),
+  });
+};
+
+export const getSetOpsRecipeQualityMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof setOpsRecipeQuality>>,
+    TError,
+    { recipeId: string; data: BodyType<RecipeQualityBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof setOpsRecipeQuality>>,
+  TError,
+  { recipeId: string; data: BodyType<RecipeQualityBody> },
+  TContext
+> => {
+  const mutationKey = ["setOpsRecipeQuality"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof setOpsRecipeQuality>>,
+    { recipeId: string; data: BodyType<RecipeQualityBody> }
+  > = (props) => {
+    const { recipeId, data } = props ?? {};
+
+    return setOpsRecipeQuality(recipeId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SetOpsRecipeQualityMutationResult = NonNullable<
+  Awaited<ReturnType<typeof setOpsRecipeQuality>>
+>;
+export type SetOpsRecipeQualityMutationBody = BodyType<RecipeQualityBody>;
+export type SetOpsRecipeQualityMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Update recipe quality tier or add review note
+ */
+export const useSetOpsRecipeQuality = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof setOpsRecipeQuality>>,
+    TError,
+    { recipeId: string; data: BodyType<RecipeQualityBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof setOpsRecipeQuality>>,
+  TError,
+  { recipeId: string; data: BodyType<RecipeQualityBody> },
+  TContext
+> => {
+  return useMutation(getSetOpsRecipeQualityMutationOptions(options));
+};
+
+/**
+ * @summary List user-created recipes pending review
+ */
+export const getGetOpsUserCreatedRecipesUrl = (
+  params?: GetOpsUserCreatedRecipesParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/ops/recipes/user-created?${stringifiedParams}`
+    : `/api/ops/recipes/user-created`;
+};
+
+export const getOpsUserCreatedRecipes = async (
+  params?: GetOpsUserCreatedRecipesParams,
+  options?: RequestInit,
+): Promise<OpsUserRecipeListResponse> => {
+  return customFetch<OpsUserRecipeListResponse>(
+    getGetOpsUserCreatedRecipesUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetOpsUserCreatedRecipesQueryKey = (
+  params?: GetOpsUserCreatedRecipesParams,
+) => {
+  return [
+    `/api/ops/recipes/user-created`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getGetOpsUserCreatedRecipesQueryOptions = <
+  TData = Awaited<ReturnType<typeof getOpsUserCreatedRecipes>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetOpsUserCreatedRecipesParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getOpsUserCreatedRecipes>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetOpsUserCreatedRecipesQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getOpsUserCreatedRecipes>>
+  > = ({ signal }) =>
+    getOpsUserCreatedRecipes(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getOpsUserCreatedRecipes>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetOpsUserCreatedRecipesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getOpsUserCreatedRecipes>>
+>;
+export type GetOpsUserCreatedRecipesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List user-created recipes pending review
+ */
+
+export function useGetOpsUserCreatedRecipes<
+  TData = Awaited<ReturnType<typeof getOpsUserCreatedRecipes>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetOpsUserCreatedRecipesParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getOpsUserCreatedRecipes>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetOpsUserCreatedRecipesQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Approve/reject a user-created recipe
+ */
+export const getDecideOpsUserRecipeUrl = (recipeId: string) => {
+  return `/api/ops/recipes/user-created/${recipeId}/decide`;
+};
+
+export const decideOpsUserRecipe = async (
+  recipeId: string,
+  recipeDecisionBody: RecipeDecisionBody,
+  options?: RequestInit,
+): Promise<OkResponse> => {
+  return customFetch<OkResponse>(getDecideOpsUserRecipeUrl(recipeId), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(recipeDecisionBody),
+  });
+};
+
+export const getDecideOpsUserRecipeMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof decideOpsUserRecipe>>,
+    TError,
+    { recipeId: string; data: BodyType<RecipeDecisionBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof decideOpsUserRecipe>>,
+  TError,
+  { recipeId: string; data: BodyType<RecipeDecisionBody> },
+  TContext
+> => {
+  const mutationKey = ["decideOpsUserRecipe"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof decideOpsUserRecipe>>,
+    { recipeId: string; data: BodyType<RecipeDecisionBody> }
+  > = (props) => {
+    const { recipeId, data } = props ?? {};
+
+    return decideOpsUserRecipe(recipeId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DecideOpsUserRecipeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof decideOpsUserRecipe>>
+>;
+export type DecideOpsUserRecipeMutationBody = BodyType<RecipeDecisionBody>;
+export type DecideOpsUserRecipeMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Approve/reject a user-created recipe
+ */
+export const useDecideOpsUserRecipe = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof decideOpsUserRecipe>>,
+    TError,
+    { recipeId: string; data: BodyType<RecipeDecisionBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof decideOpsUserRecipe>>,
+  TError,
+  { recipeId: string; data: BodyType<RecipeDecisionBody> },
+  TContext
+> => {
+  return useMutation(getDecideOpsUserRecipeMutationOptions(options));
+};
+
+/**
+ * @summary List recipe reports
+ */
+export const getGetOpsRecipeReportsUrl = (
+  params?: GetOpsRecipeReportsParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/ops/recipes/reports?${stringifiedParams}`
+    : `/api/ops/recipes/reports`;
+};
+
+export const getOpsRecipeReports = async (
+  params?: GetOpsRecipeReportsParams,
+  options?: RequestInit,
+): Promise<OpsRecipeReportListResponse> => {
+  return customFetch<OpsRecipeReportListResponse>(
+    getGetOpsRecipeReportsUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetOpsRecipeReportsQueryKey = (
+  params?: GetOpsRecipeReportsParams,
+) => {
+  return [`/api/ops/recipes/reports`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetOpsRecipeReportsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getOpsRecipeReports>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetOpsRecipeReportsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getOpsRecipeReports>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetOpsRecipeReportsQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getOpsRecipeReports>>
+  > = ({ signal }) =>
+    getOpsRecipeReports(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getOpsRecipeReports>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetOpsRecipeReportsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getOpsRecipeReports>>
+>;
+export type GetOpsRecipeReportsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List recipe reports
+ */
+
+export function useGetOpsRecipeReports<
+  TData = Awaited<ReturnType<typeof getOpsRecipeReports>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetOpsRecipeReportsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getOpsRecipeReports>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetOpsRecipeReportsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List moderation queue items
+ */
+export const getGetOpsModerationUrl = (params?: GetOpsModerationParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/ops/moderation?${stringifiedParams}`
+    : `/api/ops/moderation`;
+};
+
+export const getOpsModeration = async (
+  params?: GetOpsModerationParams,
+  options?: RequestInit,
+): Promise<OpsModerationListResponse> => {
+  return customFetch<OpsModerationListResponse>(
+    getGetOpsModerationUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetOpsModerationQueryKey = (
+  params?: GetOpsModerationParams,
+) => {
+  return [`/api/ops/moderation`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetOpsModerationQueryOptions = <
+  TData = Awaited<ReturnType<typeof getOpsModeration>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetOpsModerationParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getOpsModeration>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetOpsModerationQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getOpsModeration>>
+  > = ({ signal }) => getOpsModeration(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getOpsModeration>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetOpsModerationQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getOpsModeration>>
+>;
+export type GetOpsModerationQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List moderation queue items
+ */
+
+export function useGetOpsModeration<
+  TData = Awaited<ReturnType<typeof getOpsModeration>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetOpsModerationParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getOpsModeration>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetOpsModerationQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Make moderation decision
+ */
+export const getDecideOpsModerationUrl = (reportId: string) => {
+  return `/api/ops/moderation/${reportId}/decide`;
+};
+
+export const decideOpsModeration = async (
+  reportId: string,
+  moderationDecisionBody: ModerationDecisionBody,
+  options?: RequestInit,
+): Promise<OkResponse> => {
+  return customFetch<OkResponse>(getDecideOpsModerationUrl(reportId), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(moderationDecisionBody),
+  });
+};
+
+export const getDecideOpsModerationMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof decideOpsModeration>>,
+    TError,
+    { reportId: string; data: BodyType<ModerationDecisionBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof decideOpsModeration>>,
+  TError,
+  { reportId: string; data: BodyType<ModerationDecisionBody> },
+  TContext
+> => {
+  const mutationKey = ["decideOpsModeration"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof decideOpsModeration>>,
+    { reportId: string; data: BodyType<ModerationDecisionBody> }
+  > = (props) => {
+    const { reportId, data } = props ?? {};
+
+    return decideOpsModeration(reportId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DecideOpsModerationMutationResult = NonNullable<
+  Awaited<ReturnType<typeof decideOpsModeration>>
+>;
+export type DecideOpsModerationMutationBody = BodyType<ModerationDecisionBody>;
+export type DecideOpsModerationMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Make moderation decision
+ */
+export const useDecideOpsModeration = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof decideOpsModeration>>,
+    TError,
+    { reportId: string; data: BodyType<ModerationDecisionBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof decideOpsModeration>>,
+  TError,
+  { reportId: string; data: BodyType<ModerationDecisionBody> },
+  TContext
+> => {
+  return useMutation(getDecideOpsModerationMutationOptions(options));
+};
+
+/**
+ * @summary Search/filter analytics events
+ */
+export const getGetOpsAnalyticsEventsUrl = (
+  params?: GetOpsAnalyticsEventsParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/ops/analytics/events?${stringifiedParams}`
+    : `/api/ops/analytics/events`;
+};
+
+export const getOpsAnalyticsEvents = async (
+  params?: GetOpsAnalyticsEventsParams,
+  options?: RequestInit,
+): Promise<OpsAnalyticsEventsResponse> => {
+  return customFetch<OpsAnalyticsEventsResponse>(
+    getGetOpsAnalyticsEventsUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetOpsAnalyticsEventsQueryKey = (
+  params?: GetOpsAnalyticsEventsParams,
+) => {
+  return [`/api/ops/analytics/events`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetOpsAnalyticsEventsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getOpsAnalyticsEvents>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetOpsAnalyticsEventsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getOpsAnalyticsEvents>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetOpsAnalyticsEventsQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getOpsAnalyticsEvents>>
+  > = ({ signal }) =>
+    getOpsAnalyticsEvents(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getOpsAnalyticsEvents>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetOpsAnalyticsEventsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getOpsAnalyticsEvents>>
+>;
+export type GetOpsAnalyticsEventsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Search/filter analytics events
+ */
+
+export function useGetOpsAnalyticsEvents<
+  TData = Awaited<ReturnType<typeof getOpsAnalyticsEvents>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetOpsAnalyticsEventsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getOpsAnalyticsEvents>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetOpsAnalyticsEventsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get event counts summary for last N days
+ */
+export const getGetOpsAnalyticsSummaryUrl = (
+  params?: GetOpsAnalyticsSummaryParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/ops/analytics/summary?${stringifiedParams}`
+    : `/api/ops/analytics/summary`;
+};
+
+export const getOpsAnalyticsSummary = async (
+  params?: GetOpsAnalyticsSummaryParams,
+  options?: RequestInit,
+): Promise<OpsAnalyticsSummaryResponse> => {
+  return customFetch<OpsAnalyticsSummaryResponse>(
+    getGetOpsAnalyticsSummaryUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetOpsAnalyticsSummaryQueryKey = (
+  params?: GetOpsAnalyticsSummaryParams,
+) => {
+  return [`/api/ops/analytics/summary`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetOpsAnalyticsSummaryQueryOptions = <
+  TData = Awaited<ReturnType<typeof getOpsAnalyticsSummary>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetOpsAnalyticsSummaryParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getOpsAnalyticsSummary>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetOpsAnalyticsSummaryQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getOpsAnalyticsSummary>>
+  > = ({ signal }) =>
+    getOpsAnalyticsSummary(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getOpsAnalyticsSummary>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetOpsAnalyticsSummaryQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getOpsAnalyticsSummary>>
+>;
+export type GetOpsAnalyticsSummaryQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get event counts summary for last N days
+ */
+
+export function useGetOpsAnalyticsSummary<
+  TData = Awaited<ReturnType<typeof getOpsAnalyticsSummary>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetOpsAnalyticsSummaryParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getOpsAnalyticsSummary>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetOpsAnalyticsSummaryQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List notification templates
+ */
+export const getGetOpsNotificationTemplatesUrl = () => {
+  return `/api/ops/notifications/templates`;
+};
+
+export const getOpsNotificationTemplates = async (
+  options?: RequestInit,
+): Promise<OpsNotificationTemplatesResponse> => {
+  return customFetch<OpsNotificationTemplatesResponse>(
+    getGetOpsNotificationTemplatesUrl(),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetOpsNotificationTemplatesQueryKey = () => {
+  return [`/api/ops/notifications/templates`] as const;
+};
+
+export const getGetOpsNotificationTemplatesQueryOptions = <
+  TData = Awaited<ReturnType<typeof getOpsNotificationTemplates>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getOpsNotificationTemplates>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetOpsNotificationTemplatesQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getOpsNotificationTemplates>>
+  > = ({ signal }) =>
+    getOpsNotificationTemplates({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getOpsNotificationTemplates>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetOpsNotificationTemplatesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getOpsNotificationTemplates>>
+>;
+export type GetOpsNotificationTemplatesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List notification templates
+ */
+
+export function useGetOpsNotificationTemplates<
+  TData = Awaited<ReturnType<typeof getOpsNotificationTemplates>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getOpsNotificationTemplates>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetOpsNotificationTemplatesQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List notification log entries
+ */
+export const getGetOpsNotificationLogUrl = (
+  params?: GetOpsNotificationLogParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/ops/notifications/log?${stringifiedParams}`
+    : `/api/ops/notifications/log`;
+};
+
+export const getOpsNotificationLog = async (
+  params?: GetOpsNotificationLogParams,
+  options?: RequestInit,
+): Promise<OpsNotificationLogResponse> => {
+  return customFetch<OpsNotificationLogResponse>(
+    getGetOpsNotificationLogUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetOpsNotificationLogQueryKey = (
+  params?: GetOpsNotificationLogParams,
+) => {
+  return [`/api/ops/notifications/log`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetOpsNotificationLogQueryOptions = <
+  TData = Awaited<ReturnType<typeof getOpsNotificationLog>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetOpsNotificationLogParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getOpsNotificationLog>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetOpsNotificationLogQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getOpsNotificationLog>>
+  > = ({ signal }) =>
+    getOpsNotificationLog(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getOpsNotificationLog>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetOpsNotificationLogQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getOpsNotificationLog>>
+>;
+export type GetOpsNotificationLogQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List notification log entries
+ */
+
+export function useGetOpsNotificationLog<
+  TData = Awaited<ReturnType<typeof getOpsNotificationLog>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetOpsNotificationLogParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getOpsNotificationLog>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetOpsNotificationLogQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get system health overview
+ */
+export const getGetOpsSystemHealthUrl = () => {
+  return `/api/ops/system/health`;
+};
+
+export const getOpsSystemHealth = async (
+  options?: RequestInit,
+): Promise<OpsSystemHealthResponse> => {
+  return customFetch<OpsSystemHealthResponse>(getGetOpsSystemHealthUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetOpsSystemHealthQueryKey = () => {
+  return [`/api/ops/system/health`] as const;
+};
+
+export const getGetOpsSystemHealthQueryOptions = <
+  TData = Awaited<ReturnType<typeof getOpsSystemHealth>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getOpsSystemHealth>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetOpsSystemHealthQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getOpsSystemHealth>>
+  > = ({ signal }) => getOpsSystemHealth({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getOpsSystemHealth>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetOpsSystemHealthQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getOpsSystemHealth>>
+>;
+export type GetOpsSystemHealthQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get system health overview
+ */
+
+export function useGetOpsSystemHealth<
+  TData = Awaited<ReturnType<typeof getOpsSystemHealth>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getOpsSystemHealth>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetOpsSystemHealthQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List recent job runs
+ */
+export const getGetOpsJobRunsUrl = (params?: GetOpsJobRunsParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/ops/system/jobs?${stringifiedParams}`
+    : `/api/ops/system/jobs`;
+};
+
+export const getOpsJobRuns = async (
+  params?: GetOpsJobRunsParams,
+  options?: RequestInit,
+): Promise<OpsJobRunsResponse> => {
+  return customFetch<OpsJobRunsResponse>(getGetOpsJobRunsUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetOpsJobRunsQueryKey = (params?: GetOpsJobRunsParams) => {
+  return [`/api/ops/system/jobs`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetOpsJobRunsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getOpsJobRuns>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetOpsJobRunsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getOpsJobRuns>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetOpsJobRunsQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getOpsJobRuns>>> = ({
+    signal,
+  }) => getOpsJobRuns(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getOpsJobRuns>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetOpsJobRunsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getOpsJobRuns>>
+>;
+export type GetOpsJobRunsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List recent job runs
+ */
+
+export function useGetOpsJobRuns<
+  TData = Awaited<ReturnType<typeof getOpsJobRuns>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetOpsJobRunsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getOpsJobRuns>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetOpsJobRunsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List audit log entries
+ */
+export const getGetOpsAuditLogUrl = (params?: GetOpsAuditLogParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/ops/audit?${stringifiedParams}`
+    : `/api/ops/audit`;
+};
+
+export const getOpsAuditLog = async (
+  params?: GetOpsAuditLogParams,
+  options?: RequestInit,
+): Promise<OpsAuditLogResponse> => {
+  return customFetch<OpsAuditLogResponse>(getGetOpsAuditLogUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetOpsAuditLogQueryKey = (params?: GetOpsAuditLogParams) => {
+  return [`/api/ops/audit`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetOpsAuditLogQueryOptions = <
+  TData = Awaited<ReturnType<typeof getOpsAuditLog>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetOpsAuditLogParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getOpsAuditLog>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetOpsAuditLogQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getOpsAuditLog>>> = ({
+    signal,
+  }) => getOpsAuditLog(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getOpsAuditLog>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetOpsAuditLogQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getOpsAuditLog>>
+>;
+export type GetOpsAuditLogQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List audit log entries
+ */
+
+export function useGetOpsAuditLog<
+  TData = Awaited<ReturnType<typeof getOpsAuditLog>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetOpsAuditLogParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getOpsAuditLog>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetOpsAuditLogQueryOptions(params, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

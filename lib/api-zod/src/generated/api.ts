@@ -14,3 +14,816 @@ import * as zod from "zod";
 export const HealthCheckResponse = zod.object({
   status: zod.string(),
 });
+
+/**
+ * @summary Admin login
+ */
+export const OpsLoginBody = zod.object({
+  email: zod.string(),
+  password: zod.string(),
+});
+
+export const OpsLoginResponse = zod.object({
+  token: zod.string(),
+  user: zod.object({
+    id: zod.string(),
+    email: zod.string(),
+    username: zod.string(),
+    role: zod.string(),
+  }),
+});
+
+/**
+ * @summary Get current admin user
+ */
+export const OpsMeResponse = zod.object({
+  id: zod.string(),
+  email: zod.string(),
+  username: zod.string(),
+  role: zod.string(),
+});
+
+/**
+ * @summary Get dashboard overview metrics
+ */
+export const GetOpsOverviewMetricsResponse = zod.object({
+  totalUsers: zod.object({
+    label: zod.string(),
+    value: zod.number(),
+    prev: zod.number().optional(),
+    trend: zod.number().optional(),
+  }),
+  newUsers7d: zod.object({
+    label: zod.string(),
+    value: zod.number(),
+    prev: zod.number().optional(),
+    trend: zod.number().optional(),
+  }),
+  activeUsers7d: zod.object({
+    label: zod.string(),
+    value: zod.number(),
+    prev: zod.number().optional(),
+    trend: zod.number().optional(),
+  }),
+  pantryItemsCreated: zod.object({
+    label: zod.string(),
+    value: zod.number(),
+    prev: zod.number().optional(),
+    trend: zod.number().optional(),
+  }),
+  avgPantryItemsPerUser: zod
+    .object({
+      label: zod.string(),
+      value: zod.number(),
+      prev: zod.number().optional(),
+      trend: zod.number().optional(),
+    })
+    .optional(),
+  recipeViews: zod
+    .object({
+      label: zod.string(),
+      value: zod.number(),
+      prev: zod.number().optional(),
+      trend: zod.number().optional(),
+    })
+    .optional(),
+  savedRecipes: zod
+    .object({
+      label: zod.string(),
+      value: zod.number(),
+      prev: zod.number().optional(),
+      trend: zod.number().optional(),
+    })
+    .optional(),
+  cookSessions: zod.object({
+    label: zod.string(),
+    value: zod.number(),
+    prev: zod.number().optional(),
+    trend: zod.number().optional(),
+  }),
+  shoppingActions: zod
+    .object({
+      label: zod.string(),
+      value: zod.number(),
+      prev: zod.number().optional(),
+      trend: zod.number().optional(),
+    })
+    .optional(),
+  barcodeScans: zod
+    .object({
+      label: zod.string(),
+      value: zod.number(),
+      prev: zod.number().optional(),
+      trend: zod.number().optional(),
+    })
+    .optional(),
+  unknownBarcodeScans: zod
+    .object({
+      label: zod.string(),
+      value: zod.number(),
+      prev: zod.number().optional(),
+      trend: zod.number().optional(),
+    })
+    .optional(),
+  userReports: zod
+    .object({
+      label: zod.string(),
+      value: zod.number(),
+      prev: zod.number().optional(),
+      trend: zod.number().optional(),
+    })
+    .optional(),
+  pendingModeration: zod.object({
+    label: zod.string(),
+    value: zod.number(),
+    prev: zod.number().optional(),
+    trend: zod.number().optional(),
+  }),
+});
+
+/**
+ * @summary Get user behavior funnel
+ */
+export const getOpsFunnelQueryDaysDefault = 30;
+
+export const GetOpsFunnelQueryParams = zod.object({
+  days: zod.coerce.number().default(getOpsFunnelQueryDaysDefault),
+});
+
+export const GetOpsFunnelResponse = zod.object({
+  steps: zod.array(
+    zod.object({
+      step: zod.number(),
+      label: zod.string(),
+      count: zod.number(),
+      conversionFromPrev: zod.number().optional(),
+      dropOff: zod.number().optional(),
+    }),
+  ),
+  days: zod.number(),
+});
+
+/**
+ * @summary List users
+ */
+export const getOpsUsersQueryPageDefault = 1;
+export const getOpsUsersQueryLimitDefault = 50;
+export const getOpsUsersQuerySortDefault = `createdAt_desc`;
+
+export const GetOpsUsersQueryParams = zod.object({
+  q: zod.coerce.string().optional(),
+  page: zod.coerce.number().default(getOpsUsersQueryPageDefault),
+  limit: zod.coerce.number().default(getOpsUsersQueryLimitDefault),
+  role: zod.coerce.string().optional(),
+  sort: zod.coerce.string().default(getOpsUsersQuerySortDefault),
+});
+
+export const GetOpsUsersResponse = zod.object({
+  users: zod.array(
+    zod.object({
+      id: zod.string(),
+      email: zod.string().optional(),
+      username: zod.string(),
+      role: zod.string(),
+      provider: zod.string().optional(),
+      isGuest: zod.boolean().optional(),
+      createdAt: zod.string().optional(),
+      lastLoginAt: zod.string().optional(),
+      pantryCount: zod.number().optional(),
+      cookSessionCount: zod.number().optional(),
+    }),
+  ),
+  total: zod.number(),
+  page: zod.number(),
+  limit: zod.number(),
+});
+
+/**
+ * @summary Get user detail
+ */
+export const GetOpsUserParams = zod.object({
+  userId: zod.coerce.string(),
+});
+
+export const GetOpsUserResponse = zod.object({
+  id: zod.string(),
+  email: zod.string().optional(),
+  username: zod.string(),
+  role: zod.string(),
+  provider: zod.string().optional(),
+  isGuest: zod.boolean().optional(),
+  createdAt: zod.string().optional(),
+  lastLoginAt: zod.string().optional(),
+  displayName: zod.string().optional(),
+  pantryItemCount: zod.number().optional(),
+  cookSessionCount: zod.number().optional(),
+  userRecipeCount: zod.number().optional(),
+  shoppingItemCount: zod.number().optional(),
+  recentEvents: zod.array(zod.object({}).passthrough()).optional(),
+});
+
+/**
+ * @summary Set user role (admin only)
+ */
+export const SetOpsUserRoleParams = zod.object({
+  userId: zod.coerce.string(),
+});
+
+export const SetOpsUserRoleBody = zod.object({
+  role: zod.enum(["user", "admin"]),
+  note: zod.string().optional(),
+});
+
+export const SetOpsUserRoleResponse = zod.object({
+  ok: zod.boolean(),
+  message: zod.string().optional(),
+});
+
+/**
+ * @summary List pantry items with filters
+ */
+export const getOpsPantryItemsQueryPageDefault = 1;
+export const getOpsPantryItemsQueryLimitDefault = 50;
+
+export const GetOpsPantryItemsQueryParams = zod.object({
+  userId: zod.coerce.string().optional(),
+  issue: zod
+    .enum(["duplicate", "missing_quantity", "missing_unit", "stale", "all"])
+    .optional(),
+  page: zod.coerce.number().default(getOpsPantryItemsQueryPageDefault),
+  limit: zod.coerce.number().default(getOpsPantryItemsQueryLimitDefault),
+});
+
+export const GetOpsPantryItemsResponse = zod.object({
+  items: zod.array(
+    zod.object({
+      id: zod.string(),
+      userId: zod.string(),
+      userEmail: zod.string().optional(),
+      ingredientId: zod.string(),
+      quantity: zod.number().optional(),
+      unit: zod.string().optional(),
+      sourceType: zod.string().optional(),
+      addedAt: zod.string().optional(),
+      updatedAt: zod.string().optional(),
+      issues: zod.array(zod.string()).optional(),
+    }),
+  ),
+  total: zod.number(),
+  page: zod.number(),
+  limit: zod.number(),
+});
+
+/**
+ * @summary Flag a pantry item for review
+ */
+export const FlagOpsPantryItemParams = zod.object({
+  itemId: zod.coerce.string(),
+});
+
+export const FlagOpsPantryItemBody = zod.object({
+  note: zod.string().optional(),
+});
+
+export const FlagOpsPantryItemResponse = zod.object({
+  ok: zod.boolean(),
+  message: zod.string().optional(),
+});
+
+/**
+ * @summary List products with quality filters
+ */
+export const getOpsProductsQueryPageDefault = 1;
+export const getOpsProductsQueryLimitDefault = 50;
+
+export const GetOpsProductsQueryParams = zod.object({
+  q: zod.coerce.string().optional(),
+  issue: zod
+    .enum([
+      "missing_name",
+      "missing_brand",
+      "missing_category",
+      "missing_image",
+      "missing_nutrition",
+      "all",
+    ])
+    .optional(),
+  page: zod.coerce.number().default(getOpsProductsQueryPageDefault),
+  limit: zod.coerce.number().default(getOpsProductsQueryLimitDefault),
+});
+
+export const GetOpsProductsResponse = zod.object({
+  products: zod.array(
+    zod.object({
+      id: zod.string(),
+      name: zod.string(),
+      brand: zod.string().optional(),
+      department: zod.string().optional(),
+      issues: zod.array(zod.string()).optional(),
+      barcodeCount: zod.number().optional(),
+      createdAt: zod.string().optional(),
+    }),
+  ),
+  total: zod.number(),
+  page: zod.number(),
+  limit: zod.number(),
+});
+
+/**
+ * @summary List unknown barcode scans
+ */
+export const getOpsUnknownBarcodesQueryPageDefault = 1;
+export const getOpsUnknownBarcodesQueryLimitDefault = 50;
+
+export const GetOpsUnknownBarcodesQueryParams = zod.object({
+  page: zod.coerce.number().default(getOpsUnknownBarcodesQueryPageDefault),
+  limit: zod.coerce.number().default(getOpsUnknownBarcodesQueryLimitDefault),
+});
+
+export const GetOpsUnknownBarcodesResponse = zod.object({
+  barcodes: zod.array(
+    zod.object({
+      barcode: zod.string(),
+      scanCount: zod.number(),
+      lastScannedAt: zod.string().optional(),
+      userIds: zod.array(zod.string()).optional(),
+    }),
+  ),
+  total: zod.number(),
+  page: zod.number(),
+  limit: zod.number(),
+});
+
+/**
+ * @summary List product edit proposals
+ */
+export const getOpsProductProposalsQueryStatusDefault = `pending`;
+export const getOpsProductProposalsQueryPageDefault = 1;
+export const getOpsProductProposalsQueryLimitDefault = 50;
+
+export const GetOpsProductProposalsQueryParams = zod.object({
+  status: zod.coerce.string().default(getOpsProductProposalsQueryStatusDefault),
+  page: zod.coerce.number().default(getOpsProductProposalsQueryPageDefault),
+  limit: zod.coerce.number().default(getOpsProductProposalsQueryLimitDefault),
+});
+
+export const GetOpsProductProposalsResponse = zod.object({
+  proposals: zod.array(
+    zod.object({
+      id: zod.string(),
+      proposalType: zod.string(),
+      riskLevel: zod.string().optional(),
+      objectType: zod.string(),
+      objectId: zod.string().optional(),
+      status: zod.string(),
+      createdBy: zod.string().optional(),
+      creatorEmail: zod.string().optional(),
+      reviewedBy: zod.string().optional(),
+      reviewNote: zod.string().optional(),
+      createdAt: zod.string().optional(),
+      payload: zod.object({}).passthrough().optional(),
+    }),
+  ),
+  total: zod.number(),
+  page: zod.number(),
+  limit: zod.number(),
+});
+
+/**
+ * @summary Approve/reject/defer a product proposal
+ */
+export const DecideOpsProductProposalParams = zod.object({
+  proposalId: zod.coerce.string(),
+});
+
+export const DecideOpsProductProposalBody = zod.object({
+  decision: zod.enum(["approved", "rejected", "needs_research"]),
+  note: zod.string().optional(),
+});
+
+export const DecideOpsProductProposalResponse = zod.object({
+  ok: zod.boolean(),
+  message: zod.string().optional(),
+});
+
+/**
+ * @summary List recipes with quality filters
+ */
+export const getOpsRecipesQueryPageDefault = 1;
+export const getOpsRecipesQueryLimitDefault = 50;
+
+export const GetOpsRecipesQueryParams = zod.object({
+  q: zod.coerce.string().optional(),
+  qualityTier: zod.coerce.string().optional(),
+  page: zod.coerce.number().default(getOpsRecipesQueryPageDefault),
+  limit: zod.coerce.number().default(getOpsRecipesQueryLimitDefault),
+});
+
+export const GetOpsRecipesResponse = zod.object({
+  recipes: zod.array(
+    zod.object({
+      id: zod.string(),
+      title: zod.string(),
+      qualityTier: zod.string(),
+      qualityIssues: zod.array(zod.string()).optional(),
+      difficulty: zod.string().optional(),
+      estimatedTimeMin: zod.number().optional(),
+      createdAt: zod.string().optional(),
+    }),
+  ),
+  total: zod.number(),
+  page: zod.number(),
+  limit: zod.number(),
+});
+
+/**
+ * @summary Update recipe quality tier or add review note
+ */
+export const SetOpsRecipeQualityParams = zod.object({
+  recipeId: zod.coerce.string(),
+});
+
+export const SetOpsRecipeQualityBody = zod.object({
+  qualityTier: zod
+    .enum(["good", "needs_rewrite", "duplicate", "unrated"])
+    .optional(),
+  note: zod.string().optional(),
+});
+
+export const SetOpsRecipeQualityResponse = zod.object({
+  ok: zod.boolean(),
+  message: zod.string().optional(),
+});
+
+/**
+ * @summary List user-created recipes pending review
+ */
+export const getOpsUserCreatedRecipesQuerySubmissionStatusDefault = `pending`;
+export const getOpsUserCreatedRecipesQueryPageDefault = 1;
+export const getOpsUserCreatedRecipesQueryLimitDefault = 50;
+
+export const GetOpsUserCreatedRecipesQueryParams = zod.object({
+  submissionStatus: zod.coerce
+    .string()
+    .default(getOpsUserCreatedRecipesQuerySubmissionStatusDefault),
+  page: zod.coerce.number().default(getOpsUserCreatedRecipesQueryPageDefault),
+  limit: zod.coerce.number().default(getOpsUserCreatedRecipesQueryLimitDefault),
+});
+
+export const GetOpsUserCreatedRecipesResponse = zod.object({
+  recipes: zod.array(
+    zod.object({
+      id: zod.string(),
+      userId: zod.string().optional(),
+      userEmail: zod.string().optional(),
+      title: zod.string(),
+      status: zod.string().optional(),
+      submissionStatus: zod.string(),
+      visibilityState: zod.string().optional(),
+      recipeType: zod.string().optional(),
+      likesCount: zod.number().optional(),
+      reportCount: zod.number().optional(),
+      createdAt: zod.string().optional(),
+    }),
+  ),
+  total: zod.number(),
+  page: zod.number(),
+  limit: zod.number(),
+});
+
+/**
+ * @summary Approve/reject a user-created recipe
+ */
+export const DecideOpsUserRecipeParams = zod.object({
+  recipeId: zod.coerce.string(),
+});
+
+export const DecideOpsUserRecipeBody = zod.object({
+  decision: zod.enum(["approved", "rejected", "needs_more_info"]),
+  note: zod.string().optional(),
+});
+
+export const DecideOpsUserRecipeResponse = zod.object({
+  ok: zod.boolean(),
+  message: zod.string().optional(),
+});
+
+/**
+ * @summary List recipe reports
+ */
+export const getOpsRecipeReportsQueryStatusDefault = `open`;
+export const getOpsRecipeReportsQueryPageDefault = 1;
+export const getOpsRecipeReportsQueryLimitDefault = 50;
+
+export const GetOpsRecipeReportsQueryParams = zod.object({
+  status: zod.coerce.string().default(getOpsRecipeReportsQueryStatusDefault),
+  page: zod.coerce.number().default(getOpsRecipeReportsQueryPageDefault),
+  limit: zod.coerce.number().default(getOpsRecipeReportsQueryLimitDefault),
+});
+
+export const GetOpsRecipeReportsResponse = zod.object({
+  reports: zod.array(
+    zod.object({
+      id: zod.string(),
+      recipeId: zod.string(),
+      recipeTitle: zod.string().optional(),
+      reporterUserId: zod.string().optional(),
+      reporterEmail: zod.string().optional(),
+      reason: zod.string(),
+      details: zod.string().optional(),
+      status: zod.string(),
+      createdAt: zod.string().optional(),
+    }),
+  ),
+  total: zod.number(),
+  page: zod.number(),
+  limit: zod.number(),
+});
+
+/**
+ * @summary List moderation queue items
+ */
+export const getOpsModerationQueryStatusDefault = `pending`;
+export const getOpsModerationQueryPageDefault = 1;
+export const getOpsModerationQueryLimitDefault = 50;
+
+export const GetOpsModerationQueryParams = zod.object({
+  contentType: zod.coerce.string().optional(),
+  status: zod.coerce.string().default(getOpsModerationQueryStatusDefault),
+  page: zod.coerce.number().default(getOpsModerationQueryPageDefault),
+  limit: zod.coerce.number().default(getOpsModerationQueryLimitDefault),
+});
+
+export const GetOpsModerationResponse = zod.object({
+  items: zod.array(
+    zod.object({
+      id: zod.string(),
+      contentType: zod.string(),
+      contentId: zod.string().optional(),
+      reason: zod.string(),
+      details: zod.string().optional(),
+      status: zod.string(),
+      reporterUserId: zod.string().optional(),
+      reporterEmail: zod.string().optional(),
+      createdAt: zod.string().optional(),
+      updatedAt: zod.string().optional(),
+    }),
+  ),
+  total: zod.number(),
+  page: zod.number(),
+  limit: zod.number(),
+});
+
+/**
+ * @summary Make moderation decision
+ */
+export const DecideOpsModerationParams = zod.object({
+  reportId: zod.coerce.string(),
+});
+
+export const DecideOpsModerationBody = zod.object({
+  decision: zod.enum(["approved", "rejected", "needs_more_info", "escalated"]),
+  note: zod.string().optional(),
+});
+
+export const DecideOpsModerationResponse = zod.object({
+  ok: zod.boolean(),
+  message: zod.string().optional(),
+});
+
+/**
+ * @summary Search/filter analytics events
+ */
+export const getOpsAnalyticsEventsQueryPageDefault = 1;
+export const getOpsAnalyticsEventsQueryLimitDefault = 100;
+
+export const GetOpsAnalyticsEventsQueryParams = zod.object({
+  event: zod.coerce.string().optional(),
+  userId: zod.coerce.string().optional(),
+  from: zod.coerce.string().optional(),
+  to: zod.coerce.string().optional(),
+  view: zod
+    .enum([
+      "onboarding",
+      "pantry",
+      "recommendation",
+      "shopping",
+      "cook",
+      "reports",
+      "all",
+    ])
+    .optional(),
+  page: zod.coerce.number().default(getOpsAnalyticsEventsQueryPageDefault),
+  limit: zod.coerce.number().default(getOpsAnalyticsEventsQueryLimitDefault),
+});
+
+export const GetOpsAnalyticsEventsResponse = zod.object({
+  events: zod.array(
+    zod.object({
+      id: zod.string(),
+      event: zod.string(),
+      userId: zod.string().optional(),
+      sessionId: zod.string().optional(),
+      properties: zod.object({}).passthrough().optional(),
+      createdAt: zod.string(),
+    }),
+  ),
+  total: zod.number(),
+  page: zod.number(),
+  limit: zod.number(),
+});
+
+/**
+ * @summary Get event counts summary for last N days
+ */
+export const getOpsAnalyticsSummaryQueryDaysDefault = 7;
+
+export const GetOpsAnalyticsSummaryQueryParams = zod.object({
+  days: zod.coerce.number().default(getOpsAnalyticsSummaryQueryDaysDefault),
+});
+
+export const GetOpsAnalyticsSummaryResponse = zod.object({
+  topEvents: zod.array(
+    zod.object({
+      event: zod.string(),
+      count: zod.number(),
+    }),
+  ),
+  totalEvents: zod.number(),
+  uniqueUsers: zod.number(),
+  days: zod.number(),
+});
+
+/**
+ * @summary List notification templates
+ */
+export const GetOpsNotificationTemplatesResponse = zod.object({
+  templates: zod.array(
+    zod.object({
+      id: zod.string(),
+      stage: zod.string().optional(),
+      title: zod.string(),
+      body: zod.string().optional(),
+      enabled: zod.boolean().optional(),
+    }),
+  ),
+});
+
+/**
+ * @summary List notification log entries
+ */
+export const getOpsNotificationLogQueryPageDefault = 1;
+export const getOpsNotificationLogQueryLimitDefault = 50;
+
+export const GetOpsNotificationLogQueryParams = zod.object({
+  userId: zod.coerce.string().optional(),
+  category: zod.coerce.string().optional(),
+  page: zod.coerce.number().default(getOpsNotificationLogQueryPageDefault),
+  limit: zod.coerce.number().default(getOpsNotificationLogQueryLimitDefault),
+});
+
+export const GetOpsNotificationLogResponse = zod.object({
+  logs: zod.array(
+    zod.object({
+      id: zod.string(),
+      userId: zod.string(),
+      category: zod.string().optional(),
+      title: zod.string(),
+      body: zod.string().optional(),
+      status: zod.string(),
+      sentAt: zod.string().optional(),
+    }),
+  ),
+  total: zod.number(),
+  page: zod.number(),
+  limit: zod.number(),
+});
+
+/**
+ * @summary Get system health overview
+ */
+export const GetOpsSystemHealthResponse = zod.object({
+  lastRecipeImport: zod
+    .object({
+      id: zod.string(),
+      jobName: zod.string(),
+      status: zod.string(),
+      startedAt: zod.string().optional(),
+      finishedAt: zod.string().optional(),
+      durationMs: zod.number().optional(),
+      errorMessage: zod.string().optional(),
+      triggeredBy: zod.string().optional(),
+      summary: zod.object({}).passthrough().optional(),
+    })
+    .optional(),
+  lastBarcodeImport: zod
+    .object({
+      id: zod.string(),
+      jobName: zod.string(),
+      status: zod.string(),
+      startedAt: zod.string().optional(),
+      finishedAt: zod.string().optional(),
+      durationMs: zod.number().optional(),
+      errorMessage: zod.string().optional(),
+      triggeredBy: zod.string().optional(),
+      summary: zod.object({}).passthrough().optional(),
+    })
+    .optional(),
+  lastNotificationJob: zod
+    .object({
+      id: zod.string(),
+      jobName: zod.string(),
+      status: zod.string(),
+      startedAt: zod.string().optional(),
+      finishedAt: zod.string().optional(),
+      durationMs: zod.number().optional(),
+      errorMessage: zod.string().optional(),
+      triggeredBy: zod.string().optional(),
+      summary: zod.object({}).passthrough().optional(),
+    })
+    .optional(),
+  recentFailedJobs: zod.array(
+    zod.object({
+      id: zod.string(),
+      jobName: zod.string(),
+      status: zod.string(),
+      startedAt: zod.string().optional(),
+      finishedAt: zod.string().optional(),
+      durationMs: zod.number().optional(),
+      errorMessage: zod.string().optional(),
+      triggeredBy: zod.string().optional(),
+      summary: zod.object({}).passthrough().optional(),
+    }),
+  ),
+  totalJobsToday: zod.number(),
+  failedJobsToday: zod.number(),
+  llmCostToday: zod.number().optional(),
+  llmCostThisWeek: zod.number().optional(),
+  dbSizeBytes: zod.number().optional(),
+});
+
+/**
+ * @summary List recent job runs
+ */
+export const getOpsJobRunsQueryPageDefault = 1;
+export const getOpsJobRunsQueryLimitDefault = 50;
+
+export const GetOpsJobRunsQueryParams = zod.object({
+  jobName: zod.coerce.string().optional(),
+  status: zod.coerce.string().optional(),
+  page: zod.coerce.number().default(getOpsJobRunsQueryPageDefault),
+  limit: zod.coerce.number().default(getOpsJobRunsQueryLimitDefault),
+});
+
+export const GetOpsJobRunsResponse = zod.object({
+  jobs: zod.array(
+    zod.object({
+      id: zod.string(),
+      jobName: zod.string(),
+      status: zod.string(),
+      startedAt: zod.string().optional(),
+      finishedAt: zod.string().optional(),
+      durationMs: zod.number().optional(),
+      errorMessage: zod.string().optional(),
+      triggeredBy: zod.string().optional(),
+      summary: zod.object({}).passthrough().optional(),
+    }),
+  ),
+  total: zod.number(),
+  page: zod.number(),
+  limit: zod.number(),
+});
+
+/**
+ * @summary List audit log entries
+ */
+export const getOpsAuditLogQueryPageDefault = 1;
+export const getOpsAuditLogQueryLimitDefault = 50;
+
+export const GetOpsAuditLogQueryParams = zod.object({
+  adminUserId: zod.coerce.string().optional(),
+  targetType: zod.coerce.string().optional(),
+  actionType: zod.coerce.string().optional(),
+  page: zod.coerce.number().default(getOpsAuditLogQueryPageDefault),
+  limit: zod.coerce.number().default(getOpsAuditLogQueryLimitDefault),
+});
+
+export const GetOpsAuditLogResponse = zod.object({
+  entries: zod.array(
+    zod.object({
+      id: zod.string(),
+      adminUserId: zod.string(),
+      adminEmail: zod.string().optional(),
+      actionType: zod.string(),
+      targetType: zod.string(),
+      targetId: zod.string().optional(),
+      oldValue: zod.object({}).passthrough().optional(),
+      newValue: zod.object({}).passthrough().optional(),
+      decisionNote: zod.string().optional(),
+      createdAt: zod.string(),
+    }),
+  ),
+  total: zod.number(),
+  page: zod.number(),
+  limit: zod.number(),
+});
