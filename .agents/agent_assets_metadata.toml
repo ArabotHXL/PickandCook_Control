@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "xufwYN3RQJKj5FwchL_AW"
+uri = "file://docs/OPS_PLATFORM_VISION.md"
+type = "text"
+title = "Pick & Cook 内部运营平台 — All-in-One 规划"
