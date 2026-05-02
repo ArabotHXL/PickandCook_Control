@@ -2,12 +2,14 @@ import { useState } from "react";
 import { Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/query-client";
-import { downloadCsv } from "@/lib/csv";
 import { PageHeader } from "@/components/ui/page-header";
-import { Search, CheckCircle, XCircle, ChevronLeft, ChevronRight, Download, Eye } from "lucide-react";
+import { Search, CheckCircle, XCircle, ChevronLeft, ChevronRight, Eye } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { UserCreatedRecipeModal } from "@/components/UserCreatedRecipeModal";
 import { useToast } from "@/hooks/use-toast";
+import { ExportMenu } from "@/components/ExportMenu";
+import { SortableHeader } from "@/components/SortableHeader";
+import { useSort } from "@/hooks/useSort";
 
 const TIER_BADGE: Record<string, string> = {
   good: "bg-emerald-100 text-emerald-700",
@@ -23,17 +25,23 @@ const STATUS_BADGE: Record<string, string> = {
   needs_more_info: "bg-blue-100 text-blue-700",
 };
 
-function useRecipes(q: string, tier: string, page: number) {
+function useRecipes(q: string, tier: string, page: number, sortQs: string) {
   return useQuery({
-    queryKey: ["ops", "recipes", q, tier, page],
-    queryFn: () => apiFetch(`/api/ops/recipes?q=${encodeURIComponent(q)}&qualityTier=${tier}&page=${page}&limit=50`).then((r) => r.json()),
+    queryKey: ["ops", "recipes", q, tier, page, sortQs],
+    queryFn: () =>
+      apiFetch(
+        `/api/ops/recipes?q=${encodeURIComponent(q)}&qualityTier=${tier}&page=${page}&limit=50${sortQs}`
+      ).then((r) => r.json()),
   });
 }
 
-function useUserRecipes(status: string, page: number) {
+function useUserRecipes(status: string, page: number, sortQs: string) {
   return useQuery({
-    queryKey: ["ops", "user-recipes", status, page],
-    queryFn: () => apiFetch(`/api/ops/recipes/user-created?submissionStatus=${status}&page=${page}&limit=50`).then((r) => r.json()),
+    queryKey: ["ops", "user-recipes", status, page, sortQs],
+    queryFn: () =>
+      apiFetch(
+        `/api/ops/recipes/user-created?submissionStatus=${status}&page=${page}&limit=50${sortQs}`
+      ).then((r) => r.json()),
   });
 }
 
@@ -52,33 +60,23 @@ export function RecipesPage() {
   const [reportStatus, setReportStatus] = useState("open");
   const [page, setPage] = useState(1);
   const [openUgcId, setOpenUgcId] = useState<string | null>(null);
+  const catalogSort = useSort();
+  const ugcSort = useSort();
   const qc = useQueryClient();
   const { toast } = useToast();
 
-  async function exportCurrent() {
-    try {
-      if (tab === "catalog") {
-        await downloadCsv(
-          `/api/ops/recipes?q=${encodeURIComponent(q)}&qualityTier=${tier}&limit=1000`,
-          `recipes-${new Date().toISOString().slice(0, 10)}.csv`
-        );
-      } else if (tab === "user") {
-        await downloadCsv(
-          `/api/ops/recipes/user-created?submissionStatus=${submissionStatus}&limit=1000`,
-          `user-recipes-${new Date().toISOString().slice(0, 10)}.csv`
-        );
-      } else {
-        toast({ title: "Export not available", description: "Reports CSV not yet supported." });
-        return;
-      }
-    } catch (e) {
-      toast({ title: "Export failed", description: (e as Error).message, variant: "destructive" });
-    }
-  }
-
-  const recipesQuery = useRecipes(q, tier, page);
-  const userRecipesQuery = useUserRecipes(submissionStatus, page);
+  const recipesQuery = useRecipes(q, tier, page, catalogSort.qs);
+  const userRecipesQuery = useUserRecipes(submissionStatus, page, ugcSort.qs);
   const reportsQuery = useRecipeReports(reportStatus, page);
+
+  const exportPath =
+    tab === "catalog"
+      ? `/api/ops/recipes?q=${encodeURIComponent(q)}&qualityTier=${tier}&limit=1000${catalogSort.qs}`
+      : `/api/ops/recipes/user-created?submissionStatus=${submissionStatus}&limit=1000${ugcSort.qs}`;
+  const exportStem =
+    tab === "catalog"
+      ? `recipes-${new Date().toISOString().slice(0, 10)}`
+      : `user-recipes-${new Date().toISOString().slice(0, 10)}`;
 
   const setQualityMutation = useMutation({
     mutationFn: ({ id, qualityTier }: { id: string; qualityTier: string }) =>
@@ -90,6 +88,8 @@ export function RecipesPage() {
     mutationFn: ({ id, decision }: { id: string; decision: string }) =>
       apiFetch(`/api/ops/recipes/user-created/${id}/decide`, { method: "POST", body: JSON.stringify({ decision }) }).then((r) => r.json()),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["ops", "user-recipes"] }),
+    onError: (e: Error) =>
+      toast({ title: "Decision failed", description: e.message, variant: "destructive" }),
   });
 
   const totalPages = Math.ceil(
@@ -103,13 +103,9 @@ export function RecipesPage() {
         title="Recipe Ops"
         description="Catalog quality, user submissions, reports"
         actions={
-          <button
-            onClick={exportCurrent}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-input bg-background text-sm hover:bg-muted"
-            data-testid="button-export-csv"
-          >
-            <Download className="w-3.5 h-3.5" /> Export CSV
-          </button>
+          tab !== "reports" ? (
+            <ExportMenu path={exportPath} filenameStem={exportStem} testId="button-export-csv" />
+          ) : undefined
         }
       />
 
@@ -149,10 +145,10 @@ export function RecipesPage() {
               <table className="w-full text-sm">
                 <thead className="bg-muted/50 border-b border-border">
                   <tr>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Title</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Quality</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Difficulty</th>
-                    <th className="text-right px-4 py-3 font-medium text-muted-foreground">Time</th>
+                    <SortableHeader col="title" active={catalogSort.sort} onChange={(s) => { catalogSort.setSort(s); setPage(1); }} defaultDir="asc">Title</SortableHeader>
+                    <SortableHeader col="qualityTier" active={catalogSort.sort} onChange={(s) => { catalogSort.setSort(s); setPage(1); }} defaultDir="asc">Quality</SortableHeader>
+                    <SortableHeader col="difficulty" active={catalogSort.sort} onChange={(s) => { catalogSort.setSort(s); setPage(1); }} defaultDir="asc">Difficulty</SortableHeader>
+                    <SortableHeader col="estimatedTimeMin" active={catalogSort.sort} onChange={(s) => { catalogSort.setSort(s); setPage(1); }} align="right">Time</SortableHeader>
                     <th className="px-4 py-3" />
                   </tr>
                 </thead>
@@ -225,10 +221,10 @@ export function RecipesPage() {
               <table className="w-full text-sm">
                 <thead className="bg-muted/50 border-b border-border">
                   <tr>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Title</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Author</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Status</th>
-                    <th className="text-right px-4 py-3 font-medium text-muted-foreground">Reports</th>
+                    <SortableHeader col="title" active={ugcSort.sort} onChange={(s) => { ugcSort.setSort(s); setPage(1); }} defaultDir="asc">Title</SortableHeader>
+                    <SortableHeader col="userEmail" active={ugcSort.sort} onChange={(s) => { ugcSort.setSort(s); setPage(1); }} defaultDir="asc">Author</SortableHeader>
+                    <SortableHeader col="submissionStatus" active={ugcSort.sort} onChange={(s) => { ugcSort.setSort(s); setPage(1); }} defaultDir="asc">Status</SortableHeader>
+                    <SortableHeader col="reportCount" active={ugcSort.sort} onChange={(s) => { ugcSort.setSort(s); setPage(1); }} align="right">Reports</SortableHeader>
                     <th className="px-4 py-3" />
                   </tr>
                 </thead>

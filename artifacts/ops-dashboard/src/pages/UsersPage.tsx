@@ -1,12 +1,14 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/query-client";
-import { downloadCsv } from "@/lib/csv";
 import { PageHeader } from "@/components/ui/page-header";
-import { Search, ChevronLeft, ChevronRight, UserCheck, UserX, Download } from "lucide-react";
+import { Search, ChevronLeft, ChevronRight, UserCheck, UserX } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { UserDetailDrawer } from "@/components/UserDetailDrawer";
 import { useToast } from "@/hooks/use-toast";
+import { ExportMenu } from "@/components/ExportMenu";
+import { SortableHeader } from "@/components/SortableHeader";
+import { useSort } from "@/hooks/useSort";
 
 interface UserRow {
   id: string;
@@ -20,11 +22,13 @@ interface UserRow {
   createdAt: string;
 }
 
-function useUsers(q: string, page: number, role: string) {
+function useUsers(q: string, page: number, role: string, sortQs: string) {
   return useQuery({
-    queryKey: ["ops", "users", q, page, role],
+    queryKey: ["ops", "users", q, page, role, sortQs],
     queryFn: () =>
-      apiFetch(`/api/ops/users?q=${encodeURIComponent(q)}&page=${page}&limit=50${role ? `&role=${role}` : ""}`).then((r) => r.json()),
+      apiFetch(
+        `/api/ops/users?q=${encodeURIComponent(q)}&page=${page}&limit=50${role ? `&role=${role}` : ""}${sortQs}`
+      ).then((r) => r.json()),
   });
 }
 
@@ -39,29 +43,27 @@ export function UsersPage() {
   const [role, setRole] = useState("");
   const [search, setSearch] = useState("");
   const [openUser, setOpenUser] = useState<UserRow | null>(null);
+  const { sort, setSort, qs: sortQs } = useSort();
   const qc = useQueryClient();
   const { toast } = useToast();
 
-  async function handleExport() {
-    try {
-      await downloadCsv(
-        `/api/ops/users?q=${encodeURIComponent(search)}${role ? `&role=${role}` : ""}&limit=5000`,
-        `users-${new Date().toISOString().slice(0, 10)}.csv`
-      );
-    } catch (e) {
-      toast({ title: "Export failed", description: (e as Error).message, variant: "destructive" });
-    }
-  }
+  const exportPath = `/api/ops/users?q=${encodeURIComponent(search)}${role ? `&role=${role}` : ""}&limit=5000${sortQs}`;
+  const exportStem = `users-${new Date().toISOString().slice(0, 10)}`;
 
-  const { data, isLoading } = useUsers(search, page, role);
+  const { data, isLoading } = useUsers(search, page, role, sortQs);
 
   const setRoleMutation = useMutation({
     mutationFn: ({ userId, role }: { userId: string; role: string }) =>
       apiFetch(`/api/ops/users/${userId}/role`, {
         method: "PATCH",
         body: JSON.stringify({ role }),
-      }).then((r) => r.json()),
+      }).then(async (r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["ops", "users"] }),
+    onError: (e: Error) =>
+      toast({ title: "Role update failed", description: e.message, variant: "destructive" }),
   });
 
   const users = data?.users ?? [];
@@ -73,15 +75,7 @@ export function UsersPage() {
       <PageHeader
         title="Users"
         description={`${total.toLocaleString()} total users`}
-        actions={
-          <button
-            onClick={handleExport}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-input bg-background text-sm hover:bg-muted"
-            data-testid="button-export-csv"
-          >
-            <Download className="w-3.5 h-3.5" /> Export CSV
-          </button>
-        }
+        actions={<ExportMenu path={exportPath} filenameStem={exportStem} testId="button-export-csv" />}
       />
 
       <div className="p-6 space-y-4">
@@ -112,12 +106,12 @@ export function UsersPage() {
           <table className="w-full text-sm">
             <thead className="bg-muted/50 border-b border-border">
               <tr>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">User</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Role</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Provider</th>
-                <th className="text-right px-4 py-3 font-medium text-muted-foreground">Pantry</th>
-                <th className="text-right px-4 py-3 font-medium text-muted-foreground">Cook Sessions</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Joined</th>
+                <SortableHeader col="email" active={sort} onChange={(s) => { setSort(s); setPage(1); }} defaultDir="asc">User</SortableHeader>
+                <SortableHeader col="role" active={sort} onChange={(s) => { setSort(s); setPage(1); }} defaultDir="asc">Role</SortableHeader>
+                <SortableHeader col="provider" active={sort} onChange={(s) => { setSort(s); setPage(1); }} defaultDir="asc">Provider</SortableHeader>
+                <SortableHeader col="pantryCount" active={sort} onChange={(s) => { setSort(s); setPage(1); }} align="right">Pantry</SortableHeader>
+                <SortableHeader col="cookSessionCount" active={sort} onChange={(s) => { setSort(s); setPage(1); }} align="right">Cook Sessions</SortableHeader>
+                <SortableHeader col="createdAt" active={sort} onChange={(s) => { setSort(s); setPage(1); }}>Joined</SortableHeader>
                 <th className="px-4 py-3" />
               </tr>
             </thead>

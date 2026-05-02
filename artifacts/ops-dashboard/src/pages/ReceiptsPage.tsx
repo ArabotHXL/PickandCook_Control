@@ -1,20 +1,21 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/query-client";
-import { downloadCsv } from "@/lib/csv";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
-import { Receipt, CheckCircle, AlertTriangle, DollarSign, ChevronLeft, ChevronRight, X, Download } from "lucide-react";
+import { Receipt, CheckCircle, AlertTriangle, DollarSign, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useToast } from "@/hooks/use-toast";
+import { ExportMenu } from "@/components/ExportMenu";
+import { SortableHeader } from "@/components/SortableHeader";
+import { useSort } from "@/hooks/useSort";
 
-function useReceipts(status: string, page: number) {
+function useReceipts(status: string, page: number, sortQs: string) {
   return useQuery({
-    queryKey: ["ops", "receipts", status, page],
+    queryKey: ["ops", "receipts", status, page, sortQs],
     queryFn: () => {
       const params = new URLSearchParams({ page: String(page), limit: "50" });
       if (status) params.set("status", status);
-      return apiFetch(`/api/ops/receipts?${params.toString()}`).then((r) => r.json());
+      return apiFetch(`/api/ops/receipts?${params.toString()}${sortQs}`).then((r) => r.json());
     },
   });
 }
@@ -46,22 +47,16 @@ export function ReceiptsPage() {
   const [status, setStatus] = useState("");
   const [page, setPage] = useState(1);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const { toast } = useToast();
+  const { sort, setSort, qs: sortQs } = useSort();
 
-  async function handleExport() {
-    try {
-      const params = new URLSearchParams({ limit: "5000" });
-      if (status) params.set("status", status);
-      await downloadCsv(
-        `/api/ops/receipts?${params.toString()}`,
-        `receipts-${new Date().toISOString().slice(0, 10)}.csv`
-      );
-    } catch (e) {
-      toast({ title: "Export failed", description: (e as Error).message, variant: "destructive" });
-    }
-  }
+  const exportPath = (() => {
+    const p = new URLSearchParams({ limit: "5000" });
+    if (status) p.set("status", status);
+    return `/api/ops/receipts?${p.toString()}${sortQs}`;
+  })();
+  const exportStem = `receipts-${new Date().toISOString().slice(0, 10)}`;
 
-  const { data, isLoading } = useReceipts(status, page);
+  const { data, isLoading } = useReceipts(status, page, sortQs);
   const detailQuery = useReceiptDetail(selectedId);
 
   const receipts = data?.receipts ?? [];
@@ -74,15 +69,7 @@ export function ReceiptsPage() {
       <PageHeader
         title="Receipts"
         description="OCR pipeline and item extraction review"
-        actions={
-          <button
-            onClick={handleExport}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-input bg-background text-sm hover:bg-muted"
-            data-testid="button-export-csv"
-          >
-            <Download className="w-3.5 h-3.5" /> Export CSV
-          </button>
-        }
+        actions={<ExportMenu path={exportPath} filenameStem={exportStem} testId="button-export-csv" />}
       />
 
       <div className="p-6 space-y-4">
@@ -109,14 +96,14 @@ export function ReceiptsPage() {
           <table className="w-full text-sm">
             <thead className="bg-muted/50 border-b border-border">
               <tr>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Store</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">User</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Status</th>
-                <th className="text-right px-4 py-3 font-medium text-muted-foreground">Items</th>
-                <th className="text-right px-4 py-3 font-medium text-muted-foreground">Total</th>
-                <th className="text-right px-4 py-3 font-medium text-muted-foreground">LLM Cost</th>
-                <th className="text-right px-4 py-3 font-medium text-muted-foreground">Latency</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Created</th>
+                <SortableHeader col="storeName" active={sort} onChange={(s) => { setSort(s); setPage(1); }} defaultDir="asc">Store</SortableHeader>
+                <SortableHeader col="userEmail" active={sort} onChange={(s) => { setSort(s); setPage(1); }} defaultDir="asc">User</SortableHeader>
+                <SortableHeader col="status" active={sort} onChange={(s) => { setSort(s); setPage(1); }} defaultDir="asc">Status</SortableHeader>
+                <SortableHeader col="itemCount" active={sort} onChange={(s) => { setSort(s); setPage(1); }} align="right">Items</SortableHeader>
+                <SortableHeader col="totalCents" active={sort} onChange={(s) => { setSort(s); setPage(1); }} align="right">Total</SortableHeader>
+                <SortableHeader col="llmCostUsd" active={sort} onChange={(s) => { setSort(s); setPage(1); }} align="right">LLM Cost</SortableHeader>
+                <SortableHeader col="llmLatencyMs" active={sort} onChange={(s) => { setSort(s); setPage(1); }} align="right">Latency</SortableHeader>
+                <SortableHeader col="createdAt" active={sort} onChange={(s) => { setSort(s); setPage(1); }}>Created</SortableHeader>
                 <th className="px-4 py-3" />
               </tr>
             </thead>

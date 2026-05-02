@@ -1,6 +1,16 @@
 import type { Request, Response } from "express";
 import { query } from "./db.js";
-import { sendCsv, isCsvRequested } from "./csv.js";
+import { maybeSendExport, buildOrderBy } from "./csv.js";
+
+const SESSION_SORTS: Record<string, string> = {
+  recipeTitle: "r.title",
+  userEmail: "u.email",
+  status: "cs.status",
+  progressPct: "(CASE WHEN cs.total_steps > 0 THEN cs.completed_steps::float / cs.total_steps ELSE 0 END)",
+  servings: "cs.servings",
+  startedAt: "cs.started_at",
+  finishedAt: "cs.finished_at",
+};
 
 export async function listCookSessions(req: Request, res: Response): Promise<void> {
   const status = req.query.status as string | undefined;
@@ -23,6 +33,7 @@ export async function listCookSessions(req: Request, res: Response): Promise<voi
   }
 
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  const orderBy = buildOrderBy(req.query.sort, req.query.dir, SESSION_SORTS, "cs.started_at", "cs.id");
 
   const [rows, count, summary] = await Promise.all([
     query<{
@@ -56,7 +67,7 @@ export async function listCookSessions(req: Request, res: Response): Promise<voi
             LIMIT 1
          ) pdr ON true
          ${where}
-         ORDER BY cs.started_at DESC
+         ${orderBy}
          LIMIT $${pi++} OFFSET $${pi}`,
       [...params, limit, offset]
     ),
@@ -101,19 +112,26 @@ export async function listCookSessions(req: Request, res: Response): Promise<voi
     reviewStatus: r.review_status,
   }));
 
-  if (isCsvRequested(req.query.format)) {
-    sendCsv(res, `cook-sessions-${new Date().toISOString().slice(0, 10)}.csv`, sessions, [
-      "id",
-      "userEmail",
-      "recipeTitle",
-      "status",
-      "progressPct",
-      "totalSteps",
-      "completedSteps",
-      "servings",
-      "startedAt",
-      "finishedAt",
-    ]);
+  if (
+    await maybeSendExport(
+      res,
+      req.query.format,
+      `cook-sessions-${new Date().toISOString().slice(0, 10)}`,
+      sessions,
+      [
+        "id",
+        "userEmail",
+        "recipeTitle",
+        "status",
+        "progressPct",
+        "totalSteps",
+        "completedSteps",
+        "servings",
+        "startedAt",
+        "finishedAt",
+      ]
+    )
+  ) {
     return;
   }
 

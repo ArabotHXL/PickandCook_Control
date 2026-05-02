@@ -1,6 +1,18 @@
 import type { Request, Response } from "express";
 import { query, queryOne } from "./db.js";
-import { sendCsv, isCsvRequested } from "./csv.js";
+import { maybeSendExport, buildOrderBy } from "./csv.js";
+
+const RECEIPT_SORTS: Record<string, string> = {
+  storeName: "rh.store_name",
+  userEmail: "u.email",
+  status: "rh.status",
+  totalCents: "rh.total_cents",
+  llmCostUsd: "rh.llm_cost_usd",
+  llmLatencyMs: "rh.llm_latency_ms",
+  purchasedAt: "rh.purchased_at",
+  createdAt: "rh.created_at",
+  itemCount: "(SELECT COUNT(*) FROM receipt_items WHERE receipt_id = rh.id)",
+};
 
 export async function listReceipts(req: Request, res: Response): Promise<void> {
   const status = req.query.status as string | undefined;
@@ -23,6 +35,7 @@ export async function listReceipts(req: Request, res: Response): Promise<void> {
   }
 
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  const orderBy = buildOrderBy(req.query.sort, req.query.dir, RECEIPT_SORTS, "rh.created_at", "rh.id");
 
   const [rows, count, summary] = await Promise.all([
     query<{
@@ -49,7 +62,7 @@ export async function listReceipts(req: Request, res: Response): Promise<void> {
          FROM receipt_headers rh
          LEFT JOIN users u ON u.id = rh.user_id
          ${where}
-         ORDER BY rh.created_at DESC
+         ${orderBy}
          LIMIT $${pi++} OFFSET $${pi}`,
       [...params, limit, offset]
     ),
@@ -93,19 +106,26 @@ export async function listReceipts(req: Request, res: Response): Promise<void> {
     itemCount: parseInt(r.item_count, 10),
   }));
 
-  if (isCsvRequested(req.query.format)) {
-    sendCsv(res, `receipts-${new Date().toISOString().slice(0, 10)}.csv`, receipts, [
-      "id",
-      "userEmail",
-      "storeName",
-      "status",
-      "totalCents",
-      "itemCount",
-      "llmModel",
-      "llmCostUsd",
-      "purchasedAt",
-      "createdAt",
-    ]);
+  if (
+    await maybeSendExport(
+      res,
+      req.query.format,
+      `receipts-${new Date().toISOString().slice(0, 10)}`,
+      receipts,
+      [
+        "id",
+        "userEmail",
+        "storeName",
+        "status",
+        "totalCents",
+        "itemCount",
+        "llmModel",
+        "llmCostUsd",
+        "purchasedAt",
+        "createdAt",
+      ]
+    )
+  ) {
     return;
   }
 

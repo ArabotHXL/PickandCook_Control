@@ -2,11 +2,30 @@ import type { Request, Response } from "express";
 import { query } from "./db.js";
 import { writeAuditLog } from "./audit.js";
 import type { AdminPayload } from "./auth.js";
-import { sendCsv, isCsvRequested } from "./csv.js";
+import { maybeSendExport, buildOrderBy } from "./csv.js";
 
 function getAdminUser(req: Request): AdminPayload {
   return (req as Request & { adminUser: AdminPayload }).adminUser;
 }
+
+const CATALOG_SORTS: Record<string, string> = {
+  title: "r.title",
+  qualityTier: "r.quality_tier",
+  difficulty: "r.difficulty",
+  estimatedTimeMin: "r.estimated_time_min",
+  createdAt: "r.created_at",
+};
+
+const UGC_SORTS: Record<string, string> = {
+  title: "ur.title",
+  userEmail: "u.email",
+  submissionStatus: "ur.submission_status",
+  visibilityState: "ur.visibility_state",
+  recipeType: "ur.recipe_type",
+  likesCount: "ur.likes_count",
+  reportCount: "ur.report_count",
+  createdAt: "ur.created_at",
+};
 
 export async function listRecipes(req: Request, res: Response): Promise<void> {
   const q = (req.query.q as string) ?? "";
@@ -31,6 +50,7 @@ export async function listRecipes(req: Request, res: Response): Promise<void> {
   }
 
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  const orderBy = buildOrderBy(req.query.sort, req.query.dir, CATALOG_SORTS, "r.created_at", "r.id");
 
   const [recipes, countRows] = await Promise.all([
     query<{
@@ -45,7 +65,7 @@ export async function listRecipes(req: Request, res: Response): Promise<void> {
       `SELECT id, title, quality_tier, quality_issues, difficulty, estimated_time_min, created_at
        FROM recipes r
        ${where}
-       ORDER BY created_at DESC
+       ${orderBy}
        LIMIT $${pi} OFFSET $${pi + 1}`,
       [...params, limit, offset]
     ),
@@ -65,15 +85,15 @@ export async function listRecipes(req: Request, res: Response): Promise<void> {
     createdAt: r.created_at,
   }));
 
-  if (isCsvRequested(req.query.format)) {
-    sendCsv(res, `recipes-${new Date().toISOString().slice(0, 10)}.csv`, dto, [
-      "id",
-      "title",
-      "qualityTier",
-      "difficulty",
-      "estimatedTimeMin",
-      "createdAt",
-    ]);
+  if (
+    await maybeSendExport(
+      res,
+      req.query.format,
+      `recipes-${new Date().toISOString().slice(0, 10)}`,
+      dto,
+      ["id", "title", "qualityTier", "difficulty", "estimatedTimeMin", "createdAt"]
+    )
+  ) {
     return;
   }
 
@@ -131,6 +151,8 @@ export async function listUserCreatedRecipes(req: Request, res: Response): Promi
   const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit ?? "50"), 10)));
   const offset = (page - 1) * limit;
 
+  const orderBy = buildOrderBy(req.query.sort, req.query.dir, UGC_SORTS, "ur.created_at", "ur.id");
+
   const [recipes, countRows] = await Promise.all([
     query<{
       id: string;
@@ -151,7 +173,7 @@ export async function listUserCreatedRecipes(req: Request, res: Response): Promi
        FROM user_recipes ur
        LEFT JOIN users u ON u.id = ur.user_id
        WHERE ur.submission_status = $1
-       ORDER BY ur.created_at DESC
+       ${orderBy}
        LIMIT $2 OFFSET $3`,
       [submissionStatus, limit, offset]
     ),
@@ -175,18 +197,25 @@ export async function listUserCreatedRecipes(req: Request, res: Response): Promi
     createdAt: r.created_at,
   }));
 
-  if (isCsvRequested(req.query.format)) {
-    sendCsv(res, `user-recipes-${new Date().toISOString().slice(0, 10)}.csv`, dto, [
-      "id",
-      "title",
-      "userEmail",
-      "submissionStatus",
-      "visibilityState",
-      "recipeType",
-      "likesCount",
-      "reportCount",
-      "createdAt",
-    ]);
+  if (
+    await maybeSendExport(
+      res,
+      req.query.format,
+      `user-recipes-${new Date().toISOString().slice(0, 10)}`,
+      dto,
+      [
+        "id",
+        "title",
+        "userEmail",
+        "submissionStatus",
+        "visibilityState",
+        "recipeType",
+        "likesCount",
+        "reportCount",
+        "createdAt",
+      ]
+    )
+  ) {
     return;
   }
 

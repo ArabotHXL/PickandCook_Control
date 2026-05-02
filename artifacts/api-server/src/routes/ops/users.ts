@@ -2,7 +2,18 @@ import type { Request, Response } from "express";
 import { query, queryOne } from "./db.js";
 import { writeAuditLog } from "./audit.js";
 import type { AdminPayload } from "./auth.js";
-import { sendCsv, isCsvRequested } from "./csv.js";
+import { maybeSendExport, buildOrderBy } from "./csv.js";
+
+const USER_SORTS: Record<string, string> = {
+  email: "u.email",
+  username: "u.username",
+  role: "u.role",
+  provider: "u.provider",
+  pantryCount: "pantry_count",
+  cookSessionCount: "cook_session_count",
+  createdAt: "u.created_at",
+  lastLoginAt: "u.last_login_at",
+};
 
 function getAdminUser(req: Request): AdminPayload {
   return (req as Request & { adminUser: AdminPayload }).adminUser;
@@ -33,6 +44,7 @@ export async function listUsers(req: Request, res: Response): Promise<void> {
   }
 
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  const orderBy = buildOrderBy(req.query.sort, req.query.dir, USER_SORTS, "u.created_at", "u.id");
 
   const [users, countRows] = await Promise.all([
     query<{
@@ -54,7 +66,7 @@ export async function listUsers(req: Request, res: Response): Promise<void> {
          COALESCE((SELECT COUNT(*) FROM cook_sessions cs WHERE cs.user_id = u.id), 0)::text AS cook_session_count
        FROM users u
        ${where}
-       ORDER BY u.created_at DESC
+       ${orderBy}
        LIMIT $${pi} OFFSET $${pi + 1}`,
       [...params, limit, offset]
     ),
@@ -77,19 +89,26 @@ export async function listUsers(req: Request, res: Response): Promise<void> {
     cookSessionCount: parseInt(u.cook_session_count, 10),
   }));
 
-  if (isCsvRequested(req.query.format)) {
-    sendCsv(res, `users-${new Date().toISOString().slice(0, 10)}.csv`, dto, [
-      "id",
-      "email",
-      "username",
-      "role",
-      "provider",
-      "isGuest",
-      "pantryCount",
-      "cookSessionCount",
-      "createdAt",
-      "lastLoginAt",
-    ]);
+  if (
+    await maybeSendExport(
+      res,
+      req.query.format,
+      `users-${new Date().toISOString().slice(0, 10)}`,
+      dto,
+      [
+        "id",
+        "email",
+        "username",
+        "role",
+        "provider",
+        "isGuest",
+        "pantryCount",
+        "cookSessionCount",
+        "createdAt",
+        "lastLoginAt",
+      ]
+    )
+  ) {
     return;
   }
 

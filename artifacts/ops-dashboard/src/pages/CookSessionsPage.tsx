@@ -1,20 +1,21 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/query-client";
-import { downloadCsv } from "@/lib/csv";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
-import { ChefHat, Clock, CheckCircle, XCircle, ChevronLeft, ChevronRight, Download } from "lucide-react";
+import { ChefHat, Clock, CheckCircle, XCircle, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useToast } from "@/hooks/use-toast";
+import { ExportMenu } from "@/components/ExportMenu";
+import { SortableHeader } from "@/components/SortableHeader";
+import { useSort } from "@/hooks/useSort";
 
-function useCookSessions(status: string, page: number) {
+function useCookSessions(status: string, page: number, sortQs: string) {
   return useQuery({
-    queryKey: ["ops", "cookSessions", status, page],
+    queryKey: ["ops", "cookSessions", status, page, sortQs],
     queryFn: () => {
       const params = new URLSearchParams({ page: String(page), limit: "50" });
       if (status) params.set("status", status);
-      return apiFetch(`/api/ops/cook-sessions?${params.toString()}`).then((r) => r.json());
+      return apiFetch(`/api/ops/cook-sessions?${params.toString()}${sortQs}`).then((r) => r.json());
     },
   });
 }
@@ -41,22 +42,16 @@ export function CookSessionsPage() {
   const [status, setStatus] = useState("");
   const [reviewStatus, setReviewStatus] = useState("pending");
   const [page, setPage] = useState(1);
-  const { toast } = useToast();
+  const { sort, setSort, qs: sortQs } = useSort();
 
-  async function handleExport() {
-    try {
-      const params = new URLSearchParams({ limit: "5000" });
-      if (status) params.set("status", status);
-      await downloadCsv(
-        `/api/ops/cook-sessions?${params.toString()}`,
-        `cook-sessions-${new Date().toISOString().slice(0, 10)}.csv`
-      );
-    } catch (e) {
-      toast({ title: "Export failed", description: (e as Error).message, variant: "destructive" });
-    }
-  }
+  const exportPath = (() => {
+    const p = new URLSearchParams({ limit: "5000" });
+    if (status) p.set("status", status);
+    return `/api/ops/cook-sessions?${p.toString()}${sortQs}`;
+  })();
+  const exportStem = `cook-sessions-${new Date().toISOString().slice(0, 10)}`;
 
-  const sessionsQuery = useCookSessions(status, page);
+  const sessionsQuery = useCookSessions(status, page, sortQs);
   const reviewsQuery = useDeductionReviews(reviewStatus, page);
 
   const sessions = sessionsQuery.data?.sessions ?? [];
@@ -75,13 +70,7 @@ export function CookSessionsPage() {
         description="Active and completed cooking sessions and pantry deductions"
         actions={
           tab === "sessions" ? (
-            <button
-              onClick={handleExport}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-input bg-background text-sm hover:bg-muted"
-              data-testid="button-export-csv"
-            >
-              <Download className="w-3.5 h-3.5" /> Export CSV
-            </button>
+            <ExportMenu path={exportPath} filenameStem={exportStem} testId="button-export-csv" />
           ) : undefined
         }
       />
@@ -123,13 +112,13 @@ export function CookSessionsPage() {
               <table className="w-full text-sm">
                 <thead className="bg-muted/50 border-b border-border">
                   <tr>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Recipe</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">User</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Status</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Progress</th>
-                    <th className="text-right px-4 py-3 font-medium text-muted-foreground">Servings</th>
+                    <SortableHeader col="recipeTitle" active={sort} onChange={(s) => { setSort(s); setPage(1); }} defaultDir="asc">Recipe</SortableHeader>
+                    <SortableHeader col="userEmail" active={sort} onChange={(s) => { setSort(s); setPage(1); }} defaultDir="asc">User</SortableHeader>
+                    <SortableHeader col="status" active={sort} onChange={(s) => { setSort(s); setPage(1); }} defaultDir="asc">Status</SortableHeader>
+                    <SortableHeader col="progressPct" active={sort} onChange={(s) => { setSort(s); setPage(1); }}>Progress</SortableHeader>
+                    <SortableHeader col="servings" active={sort} onChange={(s) => { setSort(s); setPage(1); }} align="right">Servings</SortableHeader>
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground">Review</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Started</th>
+                    <SortableHeader col="startedAt" active={sort} onChange={(s) => { setSort(s); setPage(1); }}>Started</SortableHeader>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">

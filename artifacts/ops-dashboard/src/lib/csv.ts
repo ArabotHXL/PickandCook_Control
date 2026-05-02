@@ -1,8 +1,8 @@
 import { apiFetch } from "./query-client";
 
-export async function downloadCsv(path: string, filename: string): Promise<void> {
+async function downloadFromQuery(path: string, format: "csv" | "xlsx", filename: string): Promise<void> {
   const sep = path.includes("?") ? "&" : "?";
-  const res = await apiFetch(`${path}${sep}format=csv`);
+  const res = await apiFetch(`${path}${sep}format=${format}`);
   if (!res.ok) {
     throw new Error(`Export failed: ${res.status}`);
   }
@@ -15,4 +15,12 @@ export async function downloadCsv(path: string, filename: string): Promise<void>
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+export function downloadCsv(path: string, filename: string): Promise<void> {
+  return downloadFromQuery(path, "csv", filename.endsWith(".csv") ? filename : `${filename}.csv`);
+}
+
+export function downloadXlsx(path: string, filename: string): Promise<void> {
+  return downloadFromQuery(path, "xlsx", filename.endsWith(".xlsx") ? filename : `${filename}.xlsx`);
 }
