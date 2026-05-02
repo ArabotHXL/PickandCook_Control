@@ -14,6 +14,7 @@ import {
   Eye,
   ExternalLink,
   AlertTriangle,
+  Wand2,
 } from "lucide-react";
 
 interface StagingRow {
@@ -302,6 +303,8 @@ export function RecipesStagingPage() {
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
   const [openId, setOpenId] = useState<string | null>(null);
+  const { toast } = useToast();
+  const qc = useQueryClient();
 
   const list = useQuery<StagingResponse>({
     queryKey: ["ops", "staging", status, source, q, page],
@@ -309,6 +312,23 @@ export function RecipesStagingPage() {
       apiFetch(
         `/api/ops/recipes/staging?status=${encodeURIComponent(status)}&source=${encodeURIComponent(source)}&q=${encodeURIComponent(q)}&page=${page}&limit=50`
       ).then((r) => r.json()),
+  });
+
+  const remap = useMutation({
+    mutationFn: (body: { source?: string; onlyNeedsReview?: boolean }) =>
+      apiFetch(`/api/ops/recipes/staging/remap`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }).then((r) => r.json()),
+    onSuccess: (d) => {
+      toast({
+        title: "Re-mapped staging rows",
+        description: `Scanned ${d.scanned}, updated ${d.touched}, +${d.newlyMappedIngredients} ingredients mapped, ${d.promotedToReady} now ready.`,
+      });
+      qc.invalidateQueries({ queryKey: ["ops", "staging"] });
+    },
+    onError: (e: Error) =>
+      toast({ title: "Re-map failed", description: e.message, variant: "destructive" }),
   });
 
   const totalPages = Math.ceil((list.data?.total ?? 0) / 50);
@@ -319,6 +339,18 @@ export function RecipesStagingPage() {
       <PageHeader
         title="Recipe Staging"
         description="Imports from TheMealDB / Wikibooks waiting to be promoted into the catalog"
+        actions={
+          <button
+            onClick={() => remap.mutate({ source: source || undefined })}
+            disabled={remap.isPending}
+            data-testid="button-remap"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium border border-input bg-background hover:bg-muted disabled:opacity-50"
+            title="Re-run ingredient mapping over imported / needs_review rows (capped at 200)"
+          >
+            <Wand2 className="w-4 h-4" />
+            {remap.isPending ? "Re-mapping…" : "Re-map ingredients"}
+          </button>
+        }
       />
       <div className="p-6 space-y-4">
         {/* Filter chips */}

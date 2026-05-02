@@ -1,5 +1,6 @@
 import type { JobContext, JobSummary } from "../runner.js";
 import { query, queryOne } from "../../routes/ops/db.js";
+import { mapIngredientNames } from "../../services/ingredientMapping.js";
 
 /**
  * Wikibooks Cookbook scraper (minimal best-effort implementation).
@@ -90,23 +91,6 @@ export function extractCandidateIngredients(text: string): string[] {
     .slice(0, 30);
 }
 
-async function mapIngredients(names: string[]): Promise<{ mapped: string[]; unmapped: string[] }> {
-  const mapped: string[] = [];
-  const unmapped: string[] = [];
-  for (const name of names) {
-    const row = await queryOne<{ id: string }>(
-      `SELECT id FROM products
-       WHERE lower(name) = lower($1)
-          OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(synonyms) s WHERE lower(s) = lower($1))
-       LIMIT 1`,
-      [name]
-    );
-    if (row) mapped.push(row.id);
-    else unmapped.push(name);
-  }
-  return { mapped, unmapped };
-}
-
 export function normalizeTitle(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
@@ -187,7 +171,7 @@ export async function wikibooksWeekly(ctx: JobContext): Promise<JobSummary> {
     }
 
     const candidateNames = extractCandidateIngredients(extract);
-    const { mapped, unmapped } = await mapIngredients(candidateNames);
+    const { mapped, unmapped } = await mapIngredientNames(candidateNames);
     const mappingRate = candidateNames.length === 0 ? 0 : mapped.length / candidateNames.length;
     totalMappingRate += mappingRate;
     countedForRate++;

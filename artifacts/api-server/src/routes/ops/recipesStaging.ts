@@ -4,6 +4,7 @@ import { writeAuditLog } from "./audit.js";
 import type { AdminPayload } from "./auth.js";
 import { parseLimit, parsePage } from "./queryParams.js";
 import { randomUUID } from "node:crypto";
+import { mapIngredientNames } from "../../services/ingredientMapping.js";
 
 function getAdminUser(req: Request): AdminPayload {
   return (req as Request & { adminUser: AdminPayload }).adminUser;
@@ -356,6 +357,126 @@ export async function promoteStagingRecipe(req: Request, res: Response): Promise
   });
 
   res.json({ ok: true, recipeId: result.recipeId });
+}
+
+/**
+ * Re-run ingredient mapping over staging rows that haven't been finalized.
+ *
+ * Useful after the products catalog grows or the normalizer improves: rows
+ * imported with an old, weak mapping get a fresh pass without re-scraping.
+ *
+ * Bounded to `imported` / `needs_review` rows (we never touch promoted/rejected),
+ * capped at MAX_REMAP per call to avoid runaway DB usage. Each row's
+ * mapping_rate may go up (good) or down (if the catalog lost a synonym).
+ * Status is recomputed: rate >= 0.5 -> 'ready', else -> 'needs_review'.
+ *
+ * Audited as a single rollup entry showing how many rows changed.
+ */
+const MAX_REMAP_PER_CALL = 200;
+
+export async function remapStagingIngredients(
+  req: Request,
+  res: Response
+): Promise<void> {
+  const admin = getAdminUser(req);
+  const sourceFilter = req.body?.source as string | undefined;
+  const onlyNeedsReview = req.body?.onlyNeedsReview === true;
+
+  const conditions: string[] = ["status = ANY($1::text[])"];
+  const params: unknown[] = [
+    onlyNeedsReview ? ["needs_review"] : ["imported", "needs_review"],
+  ];
+  let pi = 2;
+  if (sourceFilter) {
+    conditions.push(`source = $${pi++}`);
+    params.push(sourceFilter);
+  }
+
+  const rows = await query<{
+    id: string;
+    unmapped_ingredient_names: unknown;
+    required_ingredient_ids: unknown;
+    mapping_rate: number | null;
+    status: string;
+  }>(
+    `SELECT id, unmapped_ingredient_names, required_ingredient_ids,
+            mapping_rate, status
+       FROM imported_recipes_staging
+      WHERE ${conditions.join(" AND ")}
+      ORDER BY mapping_rate ASC NULLS FIRST
+      LIMIT ${MAX_REMAP_PER_CALL}`,
+    params
+  );
+
+  let touched = 0;
+  let totalDelta = 0;
+  let nowReady = 0;
+
+  for (const row of rows) {
+    const previouslyMapped = Array.isArray(row.required_ingredient_ids)
+      ? (row.required_ingredient_ids as string[])
+      : [];
+    const previouslyUnmapped = Array.isArray(row.unmapped_ingredient_names)
+      ? (row.unmapped_ingredient_names as string[])
+      : [];
+    // Only attempt re-mapping the previously-unmapped names. Already-mapped
+    // ingredient IDs stay (they're product UUIDs we trust).
+    if (previouslyUnmapped.length === 0) continue;
+
+    const { mapped: newlyMapped, unmapped: stillUnmapped } =
+      await mapIngredientNames(previouslyUnmapped);
+
+    if (newlyMapped.length === 0) continue; // nothing changed
+
+    const combinedMapped = [...previouslyMapped, ...newlyMapped];
+    const totalAttempted = combinedMapped.length + stillUnmapped.length;
+    const newRate = totalAttempted > 0 ? combinedMapped.length / totalAttempted : 0;
+    const newStatus = newRate >= 0.5 ? "ready" : "needs_review";
+
+    await query(
+      `UPDATE imported_recipes_staging
+          SET required_ingredient_ids = $2::jsonb,
+              unmapped_ingredient_names = $3::jsonb,
+              mapping_rate = $4,
+              status = $5,
+              updated_at = NOW()
+        WHERE id = $1`,
+      [
+        row.id,
+        JSON.stringify(combinedMapped),
+        JSON.stringify(stillUnmapped),
+        newRate,
+        newStatus,
+      ]
+    );
+
+    touched++;
+    totalDelta += newlyMapped.length;
+    if (newStatus === "ready" && row.status !== "ready") nowReady++;
+  }
+
+  await writeAuditLog({
+    adminUserId: admin.userId,
+    actionType: "staging_recipes_remap",
+    targetType: "imported_recipes_staging",
+    targetId: "batch",
+    newValue: {
+      scanned: rows.length,
+      touched,
+      newlyMappedIngredients: totalDelta,
+      promotedToReady: nowReady,
+      sourceFilter: sourceFilter ?? null,
+      onlyNeedsReview,
+    },
+  });
+
+  res.json({
+    ok: true,
+    scanned: rows.length,
+    touched,
+    newlyMappedIngredients: totalDelta,
+    promotedToReady: nowReady,
+  });
 }
 
 export async function rejectStagingRecipe(req: Request, res: Response): Promise<void> {

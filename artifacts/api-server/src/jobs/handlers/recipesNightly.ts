@@ -1,5 +1,6 @@
 import { query, queryOne } from "../../routes/ops/db.js";
 import type { JobContext, JobSummary } from "../runner.js";
+import { mapIngredientNames } from "../../services/ingredientMapping.js";
 
 const ALPHABET = "abcdefghijklmnopqrstuvwxyz".split("");
 const TIMEOUT_MS = 15000;
@@ -44,23 +45,6 @@ function extractIngredients(meal: MealdbMeal): string[] {
   return out;
 }
 
-async function mapIngredients(names: string[]): Promise<{ mapped: string[]; unmapped: string[] }> {
-  const mapped: string[] = [];
-  const unmapped: string[] = [];
-  for (const name of names) {
-    const row = await queryOne<{ id: string }>(
-      `SELECT id FROM products
-       WHERE lower(name) = lower($1)
-          OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(synonyms) s WHERE lower(s) = lower($1))
-       LIMIT 1`,
-      [name]
-    );
-    if (row) mapped.push(row.id);
-    else unmapped.push(name);
-  }
-  return { mapped, unmapped };
-}
-
 function normalizeTitle(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
@@ -103,7 +87,7 @@ export async function recipesNightly(ctx: JobContext): Promise<JobSummary> {
     }
 
     const ingNames = extractIngredients(meal);
-    const { mapped, unmapped } = await mapIngredients(ingNames);
+    const { mapped, unmapped } = await mapIngredientNames(ingNames);
     const mappingRate = ingNames.length === 0 ? 0 : mapped.length / ingNames.length;
     totalMappingRate += mappingRate;
     countedForRate++;

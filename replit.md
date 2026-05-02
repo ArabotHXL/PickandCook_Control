@@ -49,6 +49,8 @@ The project is structured as a pnpm monorepo with separate packages for differen
 -   **System Monitoring**: External API health checks, job monitoring (stale/zombie job detection), and feature flag management.
 -   **Alerting**: Outbound alert webhook integration for critical system events (job failures, cost thresholds).
 -   **Bulk Moderation**: Functionality for bulk approval or rejection of user-generated content.
+-   **Ingredient Mapping Service** (`api-server/src/services/ingredientMapping.ts`): Shared three-tier matcher used by the TheMealDB nightly scraper, the Wikibooks weekly scraper, and the staging "Re-map ingredients" admin action. Tier 1 = exact name/synonym; Tier 2 = exact match against a normalized noun phrase (`normalizeIngredientName` strips quantities, units, parentheticals, prep adjectives, and singularizes plurals); Tier 3 = word-boundary substring fallback (gated to ≥4 chars, ≤4 words to limit false positives), tie-broken by shortest product name. Boosted Wikibooks-import mapping rate from ~7% to ~74% in our test corpus.
+-   **Staging Re-map**: `POST /api/ops/recipes/staging/remap` re-runs ingredient mapping over `imported`/`needs_review` rows (capped at 200 per call, audited as a single rollup). Recomputes status (`ready` if mapping_rate ≥ 0.5). Surfaced as a header button on `/recipes/staging`.
 
 # External Dependencies
 

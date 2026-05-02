@@ -23,6 +23,7 @@ import {
   updateStagingRecipe,
   promoteStagingRecipe,
   rejectStagingRecipe,
+  remapStagingIngredients,
 } from "./recipesStaging.js";
 import {
   getRecipeDetail,
@@ -117,6 +118,7 @@ export function registerOpsRoutes(app: Express): void {
   app.get("/api/ops/recipes/reports", requireAdmin, listRecipeReports);
   // Staging promotion (TheMealDB / Wikibooks imports waiting for human review)
   app.get("/api/ops/recipes/staging", requireAdmin, listStagingRecipes);
+  app.post("/api/ops/recipes/staging/remap", requireAdminWrite, remapStagingIngredients);
   app.get("/api/ops/recipes/staging/:stagingId", requireAdmin, getStagingDetail);
   app.patch("/api/ops/recipes/staging/:stagingId", requireAdminWrite, updateStagingRecipe);
   app.post("/api/ops/recipes/staging/:stagingId/promote", requireAdminWrite, promoteStagingRecipe);
