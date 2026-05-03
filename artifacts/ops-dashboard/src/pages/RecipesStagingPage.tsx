@@ -285,7 +285,7 @@ function QueueRow({
       onClick={onClick}
       data-testid={`queue-row-${r.id}`}
       title={`Imported from ${r.source} · ${new Date(r.createdAt).toLocaleString()}`}
-      className="group cursor-pointer transition-colors border-l-[3px] p-3 hover:bg-muted/50 border-l-transparent pr-[0px] mr-[-3px]"
+      className="group cursor-pointer transition-colors border-l-[3px] p-3 hover:bg-muted/50 border-l-transparent mr-[-3px] pr-[-5px]"
     >
       <div className="flex items-center justify-between gap-2 mb-1">
         <span className="text-[10px] uppercase font-semibold tracking-wider text-muted-foreground">
