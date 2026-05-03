@@ -35,11 +35,11 @@ This project is a pnpm workspace TypeScript monorepo for a recipe-management ope
 
 ### Spoofing
 
-Admins authenticate by email/password, optional TOTP, and JWT bearer tokens signed with `SESSION_SECRET`. The API must validate token signatures and expiry on every protected route, must not accept untrusted role claims without signature verification, and must ensure TOTP challenge tokens cannot be exchanged for sessions without validating current TOTP state. Login and TOTP verification endpoints require rate limiting to slow brute-force attacks.
+Admins authenticate by email/password, optional TOTP, and JWT bearer tokens signed with `SESSION_SECRET`. The API must validate token signatures and expiry on every protected route, must not accept untrusted role claims without signature verification, and must ensure TOTP challenge tokens are never accepted by protected-route middleware as admin session tokens. TOTP seeds are long-lived second-factor credentials and must be encrypted or otherwise protected outside the database trust boundary. Login and TOTP verification endpoints require rate limiting to slow brute-force attacks.
 
 ### Tampering
 
-Write-tier admin routes can change user roles, recipes, moderation decisions, staging imports, feature flags, job schedules, and alert settings. The server must enforce `requireAdminWrite` on all mutating routes, validate request bodies and route parameters, perform business-rule checks server-side, and record meaningful audit logs for sensitive mutations. Client-side controls in the dashboard are not sufficient authorization.
+Write-tier admin routes can change user roles, recipes, moderation decisions, staging imports, feature flags, job schedules, alert settings, and object storage contents through signed upload URLs. The server must enforce `requireAdminWrite` on all mutating routes, validate request bodies and route parameters, perform business-rule checks server-side, and record meaningful audit logs for sensitive mutations. Client-side controls in the dashboard are not sufficient authorization.
 
 ### Repudiation
 
