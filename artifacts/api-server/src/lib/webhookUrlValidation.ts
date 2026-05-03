@@ -55,9 +55,21 @@ function isBlockedIpv6(ip: string): boolean {
   if (/^f[cd]/i.test(addr)) return true;
   // fe80::/10  link-local (fe8*, fe9*, fea*, feb*)
   if (/^fe[89ab]/i.test(addr)) return true;
-  // :: mapped IPv4 (::ffff:a.b.c.d)
-  const v4Mapped = addr.match(/^::(?:ffff:)?(\d+\.\d+\.\d+\.\d+)$/);
+  // :: mapped IPv4 — dotted-decimal form (::ffff:a.b.c.d)
+  const v4Mapped = addr.match(/^::(?:ffff:)?(\d+\.\d+\.\d+\.\d+)$/i);
   if (v4Mapped) return isBlockedIpv4(v4Mapped[1]!);
+
+  // :: mapped IPv4 — hex form produced by the WHATWG URL parser
+  // e.g. ::ffff:7f00:1  (Node canonicalises ::ffff:127.0.0.1 to this form)
+  //      ::c0a8:101     (IPv4-compatible, deprecated but must still be blocked)
+  const v4MappedHex = addr.match(/^::(?:ffff:)?([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
+  if (v4MappedHex) {
+    const hi = parseInt(v4MappedHex[1]!, 16);
+    const lo = parseInt(v4MappedHex[2]!, 16);
+    const reconstructed = `${(hi >>> 8) & 0xff}.${hi & 0xff}.${(lo >>> 8) & 0xff}.${lo & 0xff}`;
+    return isBlockedIpv4(reconstructed);
+  }
+
   return false;
 }
 
