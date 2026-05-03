@@ -47,6 +47,19 @@ import {
   ListChecks,
 } from "lucide-react";
 
+function safeExternalUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === "https:" || parsed.protocol === "http:") {
+      return url;
+    }
+  } catch {
+    // malformed URL
+  }
+  return null;
+}
+
 const STATUS_BADGE: Record<string, string> = {
   imported: "bg-blue-100 text-blue-700 border-blue-200",
   ready: "bg-emerald-100 text-emerald-700 border-emerald-200",
@@ -668,9 +681,9 @@ function DetailPane({
                   recipe {detail.promotedRecipeId.slice(0, 8)}
                 </Link>
               )}
-              {detail.sourceUrl && (
+              {safeExternalUrl(detail.sourceUrl) && (
                 <a
-                  href={detail.sourceUrl}
+                  href={safeExternalUrl(detail.sourceUrl)!}
                   target="_blank"
                   rel="noreferrer"
                   className="ml-auto text-primary hover:underline flex items-center gap-1"

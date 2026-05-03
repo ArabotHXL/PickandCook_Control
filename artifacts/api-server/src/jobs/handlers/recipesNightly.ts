@@ -49,6 +49,19 @@ function normalizeTitle(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
+function sanitizeSourceUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === "https:" || parsed.protocol === "http:") {
+      return url;
+    }
+  } catch {
+    // malformed URL — drop it
+  }
+  return null;
+}
+
 export async function recipesNightly(ctx: JobContext): Promise<JobSummary> {
   // Read or initialize cursor
   const cursorRow = await queryOne<{ cursor: { nextLetter?: string } }>(
@@ -116,7 +129,7 @@ export async function recipesNightly(ctx: JobContext): Promise<JobSummary> {
         ),
         JSON.stringify(mapped),
         JSON.stringify(unmapped),
-        meal.strSource ?? null,
+        sanitizeSourceUrl(meal.strSource),
         meal.strMealThumb ?? null,
         normalizeTitle(meal.strMeal),
         mappingRate,
