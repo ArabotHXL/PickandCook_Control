@@ -306,16 +306,16 @@ function QueueRow({
       >
         {r.title}
       </h3>
-      <div className="flex items-center justify-between gap-2 mt-2">
+      <div className="flex items-center justify-between gap-2 mt-2 min-w-0">
         <span
           className={cn(
-            "px-1.5 py-0.5 rounded text-[10px] font-medium border",
+            "px-1.5 py-0.5 rounded text-[10px] font-medium border shrink-0",
             STATUS_BADGE[r.status] ?? "bg-muted text-muted-foreground border-transparent",
           )}
         >
           {r.status}
         </span>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground shrink-0 whitespace-nowrap">
           <span className="tabular-nums">
             {ready.passCount}/{ready.total} checks
           </span>
@@ -1038,7 +1038,7 @@ export function RecipesStagingPage() {
 
       <div className="flex flex-1 overflow-hidden">
         {/* Queue */}
-        <div className="w-[400px] flex flex-col border-r border-border bg-card z-10 shrink-0">
+        <div className="w-[440px] flex flex-col border-r border-border bg-card z-10 shrink-0">
           <div className="p-3 border-b border-border space-y-2 bg-card shrink-0">
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
