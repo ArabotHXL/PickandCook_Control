@@ -664,6 +664,47 @@ export const ListOpsStagingResponse = zod.object({
 });
 
 /**
+ * Creates one `imported_recipes_staging` row per title with
+`source='manual'` and `status='needs_review'`. Per-row validation
+failures (empty / too long) are reported in `failed[]` instead of
+aborting the batch. All inserts share a single `batchId` recorded in
+the per-row audit entries plus a rollup audit entry. Write-admin only.
+
+ * @summary Bulk-create staging rows from a list of titles
+ */
+export const bulkCreateOpsStagingBodyTitlesMax = 500;
+
+export const BulkCreateOpsStagingBody = zod.object({
+  titles: zod
+    .array(zod.string())
+    .min(1)
+    .max(bulkCreateOpsStagingBodyTitlesMax)
+    .describe(
+      "Recipe titles. Each becomes one staging row. Trimmed server-side; empty \/ overlong entries are skipped and reported in `failed[]`.",
+    ),
+});
+
+export const BulkCreateOpsStagingResponse = zod.object({
+  batchId: zod.string(),
+  submitted: zod.number(),
+  createdCount: zod.number(),
+  failedCount: zod.number(),
+  created: zod.array(
+    zod.object({
+      id: zod.string(),
+      title: zod.string(),
+    }),
+  ),
+  failed: zod.array(
+    zod.object({
+      index: zod.number(),
+      title: zod.string(),
+      error: zod.string(),
+    }),
+  ),
+});
+
+/**
  * @summary Fetch a staging row in detail
  */
 export const GetOpsStagingDetailParams = zod.object({

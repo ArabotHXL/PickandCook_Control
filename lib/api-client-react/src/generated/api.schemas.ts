@@ -315,6 +315,35 @@ export interface OpsStagingCreateBody {
   title: string;
 }
 
+export interface OpsStagingBulkCreateBody {
+  /**
+   * Recipe titles. Each becomes one staging row. Trimmed server-side; empty / overlong entries are skipped and reported in `failed[]`.
+   * @minItems 1
+   * @maxItems 500
+   */
+  titles: string[];
+}
+
+export interface OpsStagingBulkCreateFailure {
+  index: number;
+  title: string;
+  error: string;
+}
+
+export interface OpsStagingBulkCreateCreated {
+  id: string;
+  title: string;
+}
+
+export interface OpsStagingBulkCreateResponse {
+  batchId: string;
+  submitted: number;
+  createdCount: number;
+  failedCount: number;
+  created: OpsStagingBulkCreateCreated[];
+  failed: OpsStagingBulkCreateFailure[];
+}
+
 export interface OpsStagingDecisionBody {
   note?: string;
 }

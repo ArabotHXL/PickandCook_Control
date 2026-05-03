@@ -10,6 +10,7 @@ import {
   useReextractOpsStagingIngredients,
   useUpdateOpsStaging,
   useCreateOpsStaging,
+  useBulkCreateOpsStaging,
   getListOpsStagingQueryKey,
   getGetOpsStagingDetailQueryKey,
   type OpsStagingRow,
@@ -48,6 +49,7 @@ import {
   Info,
   ListChecks,
   Plus,
+  ListPlus,
 } from "lucide-react";
 import {
   Dialog,
@@ -1111,6 +1113,14 @@ export function RecipesStagingPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [createTitle, setCreateTitle] = useState("");
   const [createError, setCreateError] = useState<string | null>(null);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkText, setBulkText] = useState("");
+  const [bulkError, setBulkError] = useState<string | null>(null);
+  const [bulkResult, setBulkResult] = useState<{
+    created: number;
+    failed: number;
+    failures: { line: number; title: string; error: string }[];
+  } | null>(null);
   const { toast } = useToast();
   const { user: currentAdmin } = useAuth();
   const canWrite = currentAdmin?.role === "admin";
@@ -1286,6 +1296,125 @@ export function RecipesStagingPage() {
     },
   });
 
+  // Parse the bulk-paste textarea into a list of { line, title } entries.
+  // Accepts plain "one per line" input or CSV (only the first column is kept).
+  // Honors RFC 4180-style double-quoting so titles containing commas (e.g.
+  // `"Eggs, Bacon & Toast",extra`) are extracted correctly. Embedded `""`
+  // escapes are unwrapped to a single quote. Empty lines and blanks are
+  // dropped so the line numbers we surface to the operator match what they
+  // actually see.
+  const parseBulkInput = (
+    raw: string,
+  ): { line: number; title: string }[] => {
+    const extractFirstField = (line: string): string => {
+      if (line[0] !== '"') {
+        const comma = line.indexOf(",");
+        return (comma === -1 ? line : line.slice(0, comma)).trim();
+      }
+      // Quoted field: walk until the matching closing quote, treating `""`
+      // as an escaped quote inside the value.
+      let out = "";
+      let i = 1;
+      while (i < line.length) {
+        const c = line[i];
+        if (c === '"') {
+          if (line[i + 1] === '"') {
+            out += '"';
+            i += 2;
+            continue;
+          }
+          // Closing quote — anything after the next comma is a separate column.
+          break;
+        }
+        out += c;
+        i++;
+      }
+      return out.trim();
+    };
+
+    const out: { line: number; title: string }[] = [];
+    const lines = raw.split(/\r?\n/);
+    for (let i = 0; i < lines.length; i++) {
+      const title = extractFirstField(lines[i]);
+      if (!title) continue;
+      out.push({ line: i + 1, title });
+    }
+    return out;
+  };
+
+  const bulkParsed = useMemo(() => parseBulkInput(bulkText), [bulkText]);
+
+  const bulkCreate = useBulkCreateOpsStaging({
+    mutation: {
+      onSuccess: async (resp) => {
+        setBulkResult({
+          created: resp.createdCount,
+          failed: resp.failedCount,
+          failures: resp.failed.map((f) => ({
+            // Map server `index` (0-based, against the titles array we sent,
+            // which was already line-filtered) back to the operator's line
+            // number so the error message points at something they can see.
+            line: bulkParsed[f.index]?.line ?? f.index + 1,
+            title: f.title,
+            error: f.error,
+          })),
+        });
+        toast({
+          title: `批量导入完成`,
+          description: `成功创建 ${resp.createdCount} 条,失败 ${resp.failedCount} 条 · batchId ${resp.batchId.slice(0, 8)}…`,
+          variant: resp.failedCount > 0 && resp.createdCount === 0
+            ? "destructive"
+            : undefined,
+        });
+        if (resp.createdCount > 0) {
+          // Same filter normalization as the single-create path so the new
+          // rows are guaranteed to be visible.
+          if (status !== "needs_review" && status !== "pending" && status !== "all") {
+            setStatus("needs_review");
+          }
+          if (source && source !== "manual") setSource("");
+          if (q) setQ("");
+          setPage(1);
+          await qc.refetchQueries({ queryKey: getListOpsStagingQueryKey().slice(0, 1) });
+          if (resp.created.length > 0) setOpenId(resp.created[0].id);
+        }
+      },
+      onError: (e: Error) => {
+        const status = (e as Error & { status?: number }).status ?? 0;
+        let msg: string;
+        if (status === 403) msg = "权限不足:仅 admin 角色可以批量创建草稿";
+        else if (status === 400) msg = "输入无效,请检查标题列表";
+        else if (status === 401) msg = "登录已过期,请重新登录";
+        else if (status >= 500) msg = "服务器错误,请稍后再试";
+        else msg = e.message || "批量导入失败";
+        setBulkError(msg);
+        toast({ title: "批量导入失败", description: msg, variant: "destructive" });
+      },
+    },
+  });
+
+  const submitBulk = () => {
+    setBulkError(null);
+    setBulkResult(null);
+    if (bulkParsed.length === 0) {
+      setBulkError("请粘贴至少一条菜谱标题(每行一条)");
+      return;
+    }
+    if (bulkParsed.length > 500) {
+      setBulkError("单次最多导入 500 条");
+      return;
+    }
+    bulkCreate.mutate({ data: { titles: bulkParsed.map((p) => p.title) } });
+  };
+
+  const closeBulkDialog = () => {
+    if (bulkCreate.isPending) return;
+    setBulkOpen(false);
+    setBulkText("");
+    setBulkError(null);
+    setBulkResult(null);
+  };
+
   const submitCreate = () => {
     const t = createTitle.trim();
     if (!t) {
@@ -1413,6 +1542,22 @@ export function RecipesStagingPage() {
               >
                 <Plus className="w-4 h-4" />
                 新建菜谱
+              </button>
+            )}
+            {canWrite && (
+              <button
+                onClick={() => {
+                  setBulkText("");
+                  setBulkError(null);
+                  setBulkResult(null);
+                  setBulkOpen(true);
+                }}
+                data-testid="button-bulk-import-staging"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium border border-input bg-background hover:bg-muted"
+                title="一次性粘贴多条菜谱标题(每行一条或 CSV),批量创建草稿"
+              >
+                <ListPlus className="w-4 h-4" />
+                批量导入
               </button>
             )}
             {source === "wikibooks" && (
@@ -1707,6 +1852,116 @@ export function RecipesStagingPage() {
                 </>
               ) : (
                 "创建草稿"
+              )}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={bulkOpen}
+        onOpenChange={(o) => {
+          if (!o) closeBulkDialog();
+          else setBulkOpen(true);
+        }}
+      >
+        <DialogContent data-testid="dialog-bulk-import-staging" className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>批量导入菜谱</DialogTitle>
+            <DialogDescription>
+              每行粘贴一条菜谱标题,或粘贴 CSV(取每行第一列作为标题)。所有创建的草稿来源标记为 manual,状态为 needs_review,共享同一个 batch id 写入审计日志。单次最多 500 条。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <label
+              htmlFor="bulk-import-textarea"
+              className="text-xs font-medium uppercase tracking-wider text-muted-foreground"
+            >
+              标题列表
+            </label>
+            <textarea
+              id="bulk-import-textarea"
+              value={bulkText}
+              onChange={(e) => {
+                setBulkText(e.target.value);
+                if (bulkError) setBulkError(null);
+                if (bulkResult) setBulkResult(null);
+              }}
+              placeholder={"番茄炒蛋\n红烧肉\n麻婆豆腐\n..."}
+              rows={10}
+              autoFocus
+              disabled={bulkCreate.isPending}
+              data-testid="textarea-bulk-import"
+              className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm font-mono focus:outline-none focus:ring-1 focus:ring-ring resize-y disabled:opacity-60 disabled:cursor-not-allowed"
+            />
+            <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+              <span data-testid="text-bulk-parsed-count">
+                已解析 {bulkParsed.length} 条 · 最多 500 条
+              </span>
+              <span>空行会自动跳过</span>
+            </div>
+            {bulkError && (
+              <p
+                role="alert"
+                data-testid="text-bulk-import-error"
+                className="text-xs text-destructive"
+              >
+                {bulkError}
+              </p>
+            )}
+            {bulkResult && (
+              <div
+                data-testid="bulk-import-result"
+                className="rounded-md border border-border bg-muted/30 p-3 space-y-2 text-xs"
+              >
+                <p className="font-medium">
+                  成功创建 {bulkResult.created} 条,失败 {bulkResult.failed} 条
+                </p>
+                {bulkResult.failures.length > 0 && (
+                  <div className="max-h-40 overflow-auto space-y-1">
+                    {bulkResult.failures.map((f, i) => (
+                      <div
+                        key={i}
+                        className="flex items-start gap-2 text-destructive"
+                      >
+                        <span className="font-mono shrink-0">第 {f.line} 行</span>
+                        <span className="truncate">
+                          {f.title || "(空)"} — {f.error}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <button
+              type="button"
+              onClick={closeBulkDialog}
+              disabled={bulkCreate.isPending}
+              data-testid="button-bulk-import-close"
+              className="inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium border border-input bg-background hover:bg-muted disabled:opacity-50"
+            >
+              {bulkResult ? "完成" : "取消"}
+            </button>
+            <button
+              type="button"
+              onClick={submitBulk}
+              disabled={
+                bulkCreate.isPending ||
+                bulkParsed.length === 0 ||
+                bulkParsed.length > 500
+              }
+              data-testid="button-bulk-import-submit"
+              className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-md text-sm font-semibold bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
+            >
+              {bulkCreate.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" /> 导入中…
+                </>
+              ) : (
+                `导入 ${bulkParsed.length || ""} 条`
               )}
             </button>
           </DialogFooter>

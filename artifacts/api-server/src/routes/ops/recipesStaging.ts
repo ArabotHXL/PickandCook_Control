@@ -233,6 +233,138 @@ export async function createStagingRecipe(req: Request, res: Response): Promise<
   });
 }
 
+/**
+ * Bulk-create staging rows from a list of titles. Each title becomes one
+ * `imported_recipes_staging` row with `source='manual'`, `status='needs_review'`
+ * (same shape as the single-create path).
+ *
+ * Per-row validation failures (empty title, too long) do NOT abort the batch;
+ * they are returned in `failed[]` so the operator can fix and retry.
+ *
+ * All inserts share one `batchId` (UUID) recorded in the per-row audit entries
+ * plus a single rollup audit entry, so the batch is reconstructable from
+ * `ops_audit_log` even though the table has no dedicated batch_id column.
+ *
+ * Capped at MAX_BULK_TITLES per call to keep memory and audit volume bounded.
+ */
+const MAX_BULK_TITLES = 500;
+
+export async function bulkCreateStagingRecipes(
+  req: Request,
+  res: Response
+): Promise<void> {
+  const admin = getAdminUser(req);
+  const titlesRaw = req.body?.titles;
+
+  if (!Array.isArray(titlesRaw)) {
+    res.status(400).json({ error: "titles must be an array of strings" });
+    return;
+  }
+  if (titlesRaw.length === 0) {
+    res.status(400).json({ error: "titles cannot be empty" });
+    return;
+  }
+  if (titlesRaw.length > MAX_BULK_TITLES) {
+    res.status(400).json({
+      error: `titles exceeds maximum of ${MAX_BULK_TITLES} per request`,
+    });
+    return;
+  }
+
+  type Failed = { index: number; title: string; error: string };
+  type Created = { id: string; title: string };
+
+  const created: Created[] = [];
+  const failed: Failed[] = [];
+  // Pre-validate so we can plan inserts. Operators paste arbitrary text;
+  // skipping invalid rows (rather than 400-ing the whole batch) is the whole
+  // point of "bulk import with summary toast".
+  const valid: { index: number; title: string }[] = [];
+  for (let i = 0; i < titlesRaw.length; i++) {
+    const raw = titlesRaw[i];
+    if (typeof raw !== "string") {
+      failed.push({ index: i, title: String(raw ?? ""), error: "not a string" });
+      continue;
+    }
+    const t = raw.trim();
+    if (!t) {
+      failed.push({ index: i, title: raw, error: "empty title" });
+      continue;
+    }
+    if (t.length > 200) {
+      failed.push({ index: i, title: t, error: "title exceeds 200 characters" });
+      continue;
+    }
+    valid.push({ index: i, title: t });
+  }
+
+  const batchId = randomUUID();
+
+  if (valid.length > 0) {
+    // All-or-nothing within the DB write: validation has already filtered
+    // out the rows we expect to fail, so a postgres error here is a real
+    // problem and should rollback rather than leave a partial batch behind.
+    await withTransaction(async (tx) => {
+      for (const v of valid) {
+        const newId = randomUUID();
+        const sourceRecipeId = randomUUID();
+        await tx.query(
+          `INSERT INTO imported_recipes_staging
+             (id, source, source_recipe_id, title, status, review_status,
+              cuisine_tags, moods, constraints, dish_type, convenience_tags,
+              required_ingredient_ids, optional_ingredient_ids,
+              unmapped_ingredient_names, instructions_steps,
+              instructions_summary, mapping_rate, duplicate_status,
+              created_at, updated_at)
+           VALUES ($1, 'manual', $2, $3, 'needs_review', 'pending',
+                   '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
+                   '[]'::jsonb, '[]'::jsonb,
+                   '[]'::jsonb, '[]'::jsonb,
+                   '', NULL, 'unique',
+                   NOW(), NOW())`,
+          [newId, sourceRecipeId, v.title]
+        );
+        created.push({ id: newId, title: v.title });
+      }
+    });
+  }
+
+  // Per-row audit so each created staging row has its own audit trail tagged
+  // with the shared batchId (queryable via `new_value->>'batchId'`).
+  for (const c of created) {
+    await writeAuditLog({
+      adminUserId: admin.userId,
+      actionType: "manual_recipe_created",
+      targetType: "imported_recipe_staging",
+      targetId: c.id,
+      newValue: { title: c.title, source: "manual", batchId },
+    });
+  }
+
+  // Single rollup so the batch itself is greppable in the audit log.
+  await writeAuditLog({
+    adminUserId: admin.userId,
+    actionType: "staging_recipes_bulk_create",
+    targetType: "imported_recipes_staging",
+    targetId: batchId,
+    newValue: {
+      batchId,
+      submitted: titlesRaw.length,
+      createdCount: created.length,
+      failedCount: failed.length,
+    },
+  });
+
+  res.json({
+    batchId,
+    submitted: titlesRaw.length,
+    createdCount: created.length,
+    failedCount: failed.length,
+    created,
+    failed,
+  });
+}
+
 export async function getStagingDetail(req: Request, res: Response): Promise<void> {
   const { stagingId } = req.params;
   const row = await queryOne<StagingRow & { raw_payload: unknown; instructions_summary: string | null; instructions_steps: unknown }>(

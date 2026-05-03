@@ -54,6 +54,8 @@ import type {
   OpsProposalListResponse,
   OpsRecipeListResponse,
   OpsRecipeReportListResponse,
+  OpsStagingBulkCreateBody,
+  OpsStagingBulkCreateResponse,
   OpsStagingCreateBody,
   OpsStagingDecisionBody,
   OpsStagingDetail,
@@ -1982,6 +1984,102 @@ export function useListOpsStaging<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * Creates one `imported_recipes_staging` row per title with
+`source='manual'` and `status='needs_review'`. Per-row validation
+failures (empty / too long) are reported in `failed[]` instead of
+aborting the batch. All inserts share a single `batchId` recorded in
+the per-row audit entries plus a rollup audit entry. Write-admin only.
+
+ * @summary Bulk-create staging rows from a list of titles
+ */
+export const getBulkCreateOpsStagingUrl = () => {
+  return `/api/ops/recipes/staging/bulk`;
+};
+
+export const bulkCreateOpsStaging = async (
+  opsStagingBulkCreateBody: OpsStagingBulkCreateBody,
+  options?: RequestInit,
+): Promise<OpsStagingBulkCreateResponse> => {
+  return customFetch<OpsStagingBulkCreateResponse>(
+    getBulkCreateOpsStagingUrl(),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(opsStagingBulkCreateBody),
+    },
+  );
+};
+
+export const getBulkCreateOpsStagingMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof bulkCreateOpsStaging>>,
+    TError,
+    { data: BodyType<OpsStagingBulkCreateBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof bulkCreateOpsStaging>>,
+  TError,
+  { data: BodyType<OpsStagingBulkCreateBody> },
+  TContext
+> => {
+  const mutationKey = ["bulkCreateOpsStaging"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof bulkCreateOpsStaging>>,
+    { data: BodyType<OpsStagingBulkCreateBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return bulkCreateOpsStaging(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type BulkCreateOpsStagingMutationResult = NonNullable<
+  Awaited<ReturnType<typeof bulkCreateOpsStaging>>
+>;
+export type BulkCreateOpsStagingMutationBody =
+  BodyType<OpsStagingBulkCreateBody>;
+export type BulkCreateOpsStagingMutationError = ErrorType<void>;
+
+/**
+ * @summary Bulk-create staging rows from a list of titles
+ */
+export const useBulkCreateOpsStaging = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof bulkCreateOpsStaging>>,
+    TError,
+    { data: BodyType<OpsStagingBulkCreateBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof bulkCreateOpsStaging>>,
+  TError,
+  { data: BodyType<OpsStagingBulkCreateBody> },
+  TContext
+> => {
+  return useMutation(getBulkCreateOpsStagingMutationOptions(options));
+};
 
 /**
  * @summary Fetch a staging row in detail

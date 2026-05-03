@@ -595,6 +595,35 @@ paths:
               schema:
                 $ref: "#/components/schemas/OpsStagingListResponse"
 
+  /ops/recipes/staging/bulk:
+    post:
+      operationId: bulkCreateOpsStaging
+      tags: [ops-staging]
+      summary: Bulk-create staging rows from a list of titles
+      description: |
+        Creates one `imported_recipes_staging` row per title with
+        `source='manual'` and `status='needs_review'`. Per-row validation
+        failures (empty / too long) are reported in `failed[]` instead of
+        aborting the batch. All inserts share a single `batchId` recorded in
+        the per-row audit entries plus a rollup audit entry. Write-admin only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpsStagingBulkCreateBody"
+      responses:
+        "200":
+          description: Bulk create summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsStagingBulkCreateResponse"
+        "400":
+          description: Invalid input
+        "403":
+          description: Write-admin required
+
   /ops/recipes/staging/{stagingId}:
     get:
       operationId: getOpsStagingDetail
@@ -1640,6 +1669,65 @@ components:
           maxLength: 200
           description: Recipe title. Trimmed server-side; must be non-empty after trim.
       required: [title]
+
+    OpsStagingBulkCreateBody:
+      type: object
+      properties:
+        titles:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items:
+            type: string
+          description: Recipe titles. Each becomes one staging row. Trimmed server-side; empty / overlong entries are skipped and reported in `failed[]`.
+      required: [titles]
+
+    OpsStagingBulkCreateFailure:
+      type: object
+      properties:
+        index:
+          type: integer
+        title:
+          type: string
+        error:
+          type: string
+      required: [index, title, error]
+
+    OpsStagingBulkCreateCreated:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+      required: [id, title]
+
+    OpsStagingBulkCreateResponse:
+      type: object
+      properties:
+        batchId:
+          type: string
+        submitted:
+          type: integer
+        createdCount:
+          type: integer
+        failedCount:
+          type: integer
+        created:
+          type: array
+          items:
+            $ref: "#/components/schemas/OpsStagingBulkCreateCreated"
+        failed:
+          type: array
+          items:
+            $ref: "#/components/schemas/OpsStagingBulkCreateFailure"
+      required:
+        - batchId
+        - submitted
+        - createdCount
+        - failedCount
+        - created
+        - failed
 
     OpsStagingDecisionBody:
       type: object
