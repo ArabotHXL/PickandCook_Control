@@ -42,7 +42,20 @@ function makeRoleGate(allowed: readonly string[]) {
     }
     try {
       const payload = jwt.verify(token, JWT_SECRET) as AdminPayload;
-      if (!allowed.includes(payload.role)) {
+
+      // Re-read the user's current role from the database on every request so
+      // that role changes (e.g. demotions) take effect immediately without
+      // waiting for the token to expire.
+      const currentUser = await queryOne<{ role: string }>(
+        `SELECT role FROM users WHERE id = $1 LIMIT 1`,
+        [payload.userId]
+      );
+      if (!currentUser) {
+        res.status(401).json({ error: "User not found" });
+        return;
+      }
+
+      if (!allowed.includes(currentUser.role)) {
         res.status(403).json({
           error:
             allowed.length === 1
@@ -51,7 +64,13 @@ function makeRoleGate(allowed: readonly string[]) {
         });
         return;
       }
-      (req as Request & { adminUser: AdminPayload }).adminUser = payload;
+
+      // Attach the up-to-date role so downstream handlers always see the
+      // current value rather than the stale claim from the token.
+      (req as Request & { adminUser: AdminPayload }).adminUser = {
+        userId: payload.userId,
+        role: currentUser.role,
+      };
       next();
     } catch {
       res.status(401).json({ error: "Invalid or expired token" });
