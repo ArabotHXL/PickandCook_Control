@@ -285,7 +285,12 @@ function QueueRow({
       onClick={onClick}
       data-testid={`queue-row-${r.id}`}
       title={`Imported from ${r.source} · ${new Date(r.createdAt).toLocaleString()}`}
-      className="group cursor-pointer transition-colors border-l-[3px] p-3 hover:bg-muted/50 border-l-transparent mr-[-3px] text-justify pr-[-5px]"
+      className={cn(
+        "group cursor-pointer transition-colors border-l-[3px] p-3",
+        selected
+          ? "bg-primary/5 border-l-primary"
+          : "hover:bg-muted/50 border-l-transparent",
+      )}
     >
       <div className="flex items-center justify-between gap-2 mb-1">
         <span className="text-[10px] uppercase font-semibold tracking-wider text-muted-foreground">
@@ -294,8 +299,9 @@ function QueueRow({
         <ReadinessDots checks={checks} />
       </div>
       <h3
+        title={r.title}
         className={cn(
-          "text-sm font-medium leading-tight truncate",
+          "text-sm font-medium leading-snug line-clamp-2 break-words",
           selected ? "text-primary" : "text-foreground",
         )}
       >
@@ -303,8 +309,9 @@ function QueueRow({
       </h3>
       <div className="flex items-center justify-between gap-2 mt-2 min-w-0">
         <span
+          title={r.status}
           className={cn(
-            "px-1.5 py-0.5 rounded text-[10px] font-medium border shrink-0",
+            "px-1.5 py-0.5 rounded text-[10px] font-medium border min-w-0 truncate",
             STATUS_BADGE[r.status] ?? "bg-muted text-muted-foreground border-transparent",
           )}
         >
