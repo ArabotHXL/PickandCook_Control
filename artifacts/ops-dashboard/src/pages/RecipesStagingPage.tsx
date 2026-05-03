@@ -411,6 +411,18 @@ export function RecipesStagingPage() {
             const allTotal =
               s === "all" ? (facets?.statuses ?? []).reduce((sum, f) => sum + f.count, 0) : null;
             const count = pendingTotal ?? allTotal ?? facet?.count ?? 0;
+            const FILTER_LABELS: Record<string, string> = {
+              pending: "In queue",
+              imported: "Imported",
+              ready: "Ready",
+              needs_review: "Needs review",
+              promoted: "Promoted",
+              rejected: "Rejected",
+              all: "All",
+            };
+            const FILTER_TITLES: Record<string, string> = {
+              pending: "Everything not yet promoted or rejected (imported + ready + needs review)",
+            };
             return (
               <button
                 key={s}
@@ -419,6 +431,7 @@ export function RecipesStagingPage() {
                   setPage(1);
                 }}
                 data-testid={`filter-status-${s}`}
+                title={FILTER_TITLES[s]}
                 className={cn(
                   "px-3 py-1.5 rounded-full text-xs font-medium border transition-colors",
                   status === s
@@ -426,7 +439,8 @@ export function RecipesStagingPage() {
                     : "bg-background text-muted-foreground border-border hover:border-primary/50"
                 )}
               >
-                {s.replace("_", " ")} <span className="opacity-60 tabular-nums">({count})</span>
+                {FILTER_LABELS[s] ?? s.replace("_", " ")}{" "}
+                <span className="opacity-60 tabular-nums">({count})</span>
               </button>
             );
           })}
