@@ -4,11 +4,24 @@ import { writeAuditLog } from "./audit.js";
 import type { AdminPayload } from "./auth.js";
 import { validateWebhookUrl } from "../../lib/webhookUrlValidation.js";
 
+const SECRET_FLAG_KEYS = new Set(["alert_webhook_url"]);
+
 function getAdminUser(req: Request): AdminPayload {
   return (req as Request & { adminUser: AdminPayload }).adminUser;
 }
 
-export async function listFlags(_req: Request, res: Response): Promise<void> {
+function redactSecretFlags(flags: Record<string, unknown>): Record<string, unknown> {
+  const redacted: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(flags)) {
+    redacted[k] = SECRET_FLAG_KEYS.has(k) && v ? "[redacted]" : v;
+  }
+  return redacted;
+}
+
+export async function listFlags(req: Request, res: Response): Promise<void> {
+  const admin = getAdminUser(req);
+  const isReadOnly = admin.role === "read_only_admin";
+
   const rows = await query<{
     id: string;
     flags: Record<string, unknown>;
@@ -21,7 +34,7 @@ export async function listFlags(_req: Request, res: Response): Promise<void> {
   res.json({
     scopes: rows.map((r) => ({
       id: r.id,
-      flags: r.flags ?? {},
+      flags: isReadOnly ? redactSecretFlags(r.flags ?? {}) : (r.flags ?? {}),
       updatedAt: r.updated_at,
       updatedBy: r.updated_by,
     })),

@@ -2,6 +2,21 @@ import type { Request, Response } from "express";
 import { query } from "./db.js";
 import { buildOrderBy } from "./csv.js";
 import { parseLimit, parsePage } from "./queryParams.js";
+import type { AdminPayload } from "./auth.js";
+
+const SECRET_FLAG_KEYS = new Set(["alert_webhook_url"]);
+
+function redactSecretAuditValue(value: unknown): unknown {
+  if (value === null || value === undefined || typeof value !== "object") {
+    return value;
+  }
+  const obj = value as Record<string, unknown>;
+  const redacted: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    redacted[k] = SECRET_FLAG_KEYS.has(k) && v ? "[redacted]" : v;
+  }
+  return redacted;
+}
 
 const AUDIT_SORTS: Record<string, string> = {
   createdAt: "al.created_at",
@@ -11,6 +26,9 @@ const AUDIT_SORTS: Record<string, string> = {
 };
 
 export async function listAuditLog(req: Request, res: Response): Promise<void> {
+  const admin = (req as Request & { adminUser: AdminPayload }).adminUser;
+  const isReadOnly = admin.role === "read_only_admin";
+
   const adminUserId = req.query.adminUserId as string | undefined;
   const targetType = req.query.targetType as string | undefined;
   const actionType = req.query.actionType as string | undefined;
@@ -78,8 +96,8 @@ export async function listAuditLog(req: Request, res: Response): Promise<void> {
       actionType: e.action_type,
       targetType: e.target_type,
       targetId: e.target_id,
-      oldValue: e.old_value,
-      newValue: e.new_value,
+      oldValue: isReadOnly ? redactSecretAuditValue(e.old_value) : e.old_value,
+      newValue: isReadOnly ? redactSecretAuditValue(e.new_value) : e.new_value,
       decisionNote: e.decision_note,
       createdAt: e.created_at,
     })),
