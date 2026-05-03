@@ -8,12 +8,14 @@ import {
   useRejectOpsStaging,
   useRemapOpsStagingIngredients,
   useReextractOpsStagingIngredients,
+  useUpdateOpsStaging,
   getListOpsStagingQueryKey,
   type OpsStagingRow,
   type OpsStagingDetail,
   type ListOpsStagingStatus,
   OpsStagingReextractBodySource,
 } from "@workspace/api-client-react";
+import { uploadImageFile, resolveImageSrc } from "@/lib/upload";
 import { PageHeader } from "@/components/ui/page-header";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
@@ -29,6 +31,10 @@ import {
   Clock,
   BookOpen,
   Image as ImageIcon,
+  Upload,
+  Link2,
+  Trash2,
+  Loader2,
   ChevronLeft,
   ChevronRight,
   Check,
@@ -333,6 +339,223 @@ function QueueRow({
   );
 }
 
+function MediaEditor({
+  detail,
+  onSaveImage,
+  saving,
+  disabled,
+}: {
+  detail: OpsStagingDetail;
+  onSaveImage: (stagingId: string, imageUrl: string | null) => void;
+  saving: boolean;
+  disabled: boolean;
+}) {
+  // Bind every save to the row id at interaction time so async uploads
+  // can't write to a different row if the operator switches selection.
+  const targetIdRef = useRef(detail.id);
+  targetIdRef.current = detail.id;
+  const [mode, setMode] = useState<"view" | "url">("view");
+  const [urlDraft, setUrlDraft] = useState("");
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const { toast } = useToast();
+
+  // Reset local UI when switching to a different staging row.
+  useEffect(() => {
+    setMode("view");
+    setUrlDraft("");
+  }, [detail.id]);
+
+  const handlePickFile = () => fileInputRef.current?.click();
+
+  const handleFile = async (file: File | null) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast({
+        title: "Not an image",
+        description: "Please choose a PNG, JPG, GIF, or WebP file.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast({
+        title: "Image too large",
+        description: "Maximum size is 10 MB.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const targetId = targetIdRef.current;
+    try {
+      setUploading(true);
+      const { objectPath } = await uploadImageFile(file);
+      onSaveImage(targetId, objectPath);
+    } catch (e) {
+      toast({
+        title: "Upload failed",
+        description: e instanceof Error ? e.message : String(e),
+        variant: "destructive",
+      });
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const submitUrl = () => {
+    if (disabled || saving || uploading) return;
+    const v = urlDraft.trim();
+    if (!v) return;
+    if (!/^https?:\/\//i.test(v)) {
+      toast({
+        title: "Invalid URL",
+        description: "Image URL must start with http:// or https://",
+        variant: "destructive",
+      });
+      return;
+    }
+    onSaveImage(targetIdRef.current, v);
+    setMode("view");
+    setUrlDraft("");
+  };
+
+  const busy = uploading || saving;
+  const hasImage = !!detail.imageUrl;
+
+  return (
+    <div id="section-media" className="space-y-3">
+      <div
+        className={cn(
+          "rounded-xl overflow-hidden border bg-card aspect-[4/3] flex items-center justify-center relative group",
+          hasImage ? "border-border" : "border-amber-300 bg-amber-50/30",
+        )}
+      >
+        {hasImage ? (
+          <img
+            src={resolveImageSrc(detail.imageUrl)}
+            alt={detail.title}
+            className="w-full h-full object-cover"
+          />
+        ) : (
+          <div className="flex flex-col items-center gap-2 text-amber-600">
+            <ImageIcon className="w-10 h-10" />
+            <span className="text-xs font-medium">No image attached</span>
+          </div>
+        )}
+        {busy && (
+          <div className="absolute inset-0 bg-background/70 backdrop-blur-sm flex items-center justify-center">
+            <Loader2 className="w-6 h-6 animate-spin text-primary" />
+          </div>
+        )}
+      </div>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        data-testid="input-image-file"
+        onChange={(e) => handleFile(e.target.files?.[0] ?? null)}
+      />
+
+      {mode === "url" ? (
+        <div className="space-y-2">
+          <input
+            type="url"
+            value={urlDraft}
+            onChange={(e) => setUrlDraft(e.target.value)}
+            placeholder="https://example.com/photo.jpg"
+            disabled={busy || disabled}
+            aria-label="Image URL"
+            data-testid="input-image-url"
+            autoFocus
+            onKeyDown={(e) => {
+              if (e.key === "Enter") submitUrl();
+              if (e.key === "Escape") {
+                setMode("view");
+                setUrlDraft("");
+              }
+            }}
+            className="w-full px-3 py-1.5 rounded border border-input bg-background text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={submitUrl}
+              disabled={busy || disabled || !urlDraft.trim()}
+              data-testid="button-save-image-url"
+              className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
+            >
+              <Check className="w-3.5 h-3.5" /> Save URL
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMode("view");
+                setUrlDraft("");
+              }}
+              disabled={busy}
+              className="px-3 py-1.5 rounded text-xs font-medium border border-input hover:bg-muted"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={handlePickFile}
+            disabled={busy || disabled}
+            data-testid="button-image-upload"
+            className="flex-1 min-w-[120px] inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium border border-input bg-background hover:bg-muted disabled:opacity-50"
+          >
+            <Upload className="w-3.5 h-3.5" />
+            {hasImage ? "Replace from file" : "Upload image"}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setUrlDraft(
+                typeof detail.imageUrl === "string" &&
+                  /^https?:\/\//i.test(detail.imageUrl)
+                  ? detail.imageUrl
+                  : "",
+              );
+              setMode("url");
+            }}
+            disabled={busy || disabled}
+            data-testid="button-image-paste-url"
+            className="flex-1 min-w-[120px] inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium border border-input bg-background hover:bg-muted disabled:opacity-50"
+          >
+            <Link2 className="w-3.5 h-3.5" />
+            Paste URL
+          </button>
+          {hasImage && (
+            <button
+              type="button"
+              onClick={() => onSaveImage(targetIdRef.current, null)}
+              disabled={busy || disabled}
+              data-testid="button-image-remove"
+              aria-label="Remove image"
+              title="Remove image"
+              className="inline-flex items-center justify-center px-2 py-1.5 rounded text-xs font-medium border border-input bg-background text-destructive hover:bg-destructive/10 disabled:opacity-50"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      )}
+      {disabled && (
+        <p className="text-[11px] text-muted-foreground">
+          Image cannot be edited once the recipe is {detail.status}.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function DetailPane({
   detail,
   isLoading,
@@ -340,6 +563,8 @@ function DetailPane({
   onNoteChange,
   onPromote,
   onReject,
+  onSaveImage,
+  imageSaving,
   promoteDisabled,
   rejectDisabled,
 }: {
@@ -349,6 +574,8 @@ function DetailPane({
   onNoteChange: (v: string) => void;
   onPromote: () => void;
   onReject: () => void;
+  onSaveImage: (stagingId: string, imageUrl: string | null) => void;
+  imageSaving: boolean;
   promoteDisabled: boolean;
   rejectDisabled: boolean;
 }) {
@@ -670,21 +897,13 @@ function DetailPane({
               </div>
             </div>
 
-            <div id="section-media" className="space-y-4">
-              <div className="rounded-xl overflow-hidden border border-border bg-card aspect-[4/3] flex items-center justify-center">
-                {detail.imageUrl ? (
-                  <img
-                    src={detail.imageUrl}
-                    alt={detail.title}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="flex flex-col items-center gap-2 text-amber-600">
-                    <ImageIcon className="w-10 h-10" />
-                    <span className="text-xs font-medium">No image attached</span>
-                  </div>
-                )}
-              </div>
+            <div className="space-y-4">
+              <MediaEditor
+                detail={detail}
+                onSaveImage={onSaveImage}
+                saving={imageSaving}
+                disabled={promoteDisabled && rejectDisabled}
+              />
               <div className="rounded-xl border border-border bg-muted/30 p-3 text-xs text-muted-foreground flex items-start gap-2">
                 <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
                 <span>
@@ -946,6 +1165,24 @@ export function RecipesStagingPage() {
         toast({ title: "Re-map failed", description: e.message, variant: "destructive" }),
     },
   });
+
+  const updateImage = useUpdateOpsStaging({
+    mutation: {
+      onSuccess: (_d, vars) => {
+        const cleared = vars.data.imageUrl === null;
+        toast({ title: cleared ? "Image removed" : "Image updated" });
+        invalidateLists();
+        void detail.refetch();
+      },
+      onError: (e: Error) =>
+        toast({ title: "Image save failed", description: e.message, variant: "destructive" }),
+    },
+  });
+
+  const onSaveImage = (stagingId: string, imageUrl: string | null) => {
+    if (!stagingId) return;
+    updateImage.mutate({ stagingId, data: { imageUrl } });
+  };
 
   const reextract = useReextractOpsStagingIngredients({
     mutation: {
@@ -1257,6 +1494,8 @@ export function RecipesStagingPage() {
               onNoteChange={setNote}
               onPromote={doPromote}
               onReject={doReject}
+              onSaveImage={onSaveImage}
+              imageSaving={updateImage.isPending}
               promoteDisabled={!canAct()}
               rejectDisabled={!canAct()}
             />

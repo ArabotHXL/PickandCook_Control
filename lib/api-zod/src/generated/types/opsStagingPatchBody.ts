@@ -13,4 +13,8 @@ export interface OpsStagingPatchBody {
   estimatedTimeMin?: number;
   difficulty?: string;
   notes?: string;
+  /** Either an absolute http(s) URL or a normalized object-storage path
+(e.g. `/objects/<uuid>`). Pass `null` to clear the image.
+ */
+  imageUrl?: string | null;
 }

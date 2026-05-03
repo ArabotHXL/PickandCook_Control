@@ -664,6 +664,12 @@ export const UpdateOpsStagingBody = zod.object({
   estimatedTimeMin: zod.number().optional(),
   difficulty: zod.string().optional(),
   notes: zod.string().optional(),
+  imageUrl: zod
+    .string()
+    .nullish()
+    .describe(
+      "Either an absolute http(s) URL or a normalized object-storage path\n(e.g. `\/objects\/<uuid>`). Pass `null` to clear the image.\n",
+    ),
 });
 
 export const UpdateOpsStagingResponse = zod.object({

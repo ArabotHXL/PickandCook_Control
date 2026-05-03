@@ -193,7 +193,7 @@ export async function getStagingDetail(req: Request, res: Response): Promise<voi
 export async function updateStagingRecipe(req: Request, res: Response): Promise<void> {
   const { stagingId } = req.params;
   const admin = getAdminUser(req);
-  const { title, requiredIngredientIds, unmappedIngredientNames, estimatedTimeMin, difficulty, notes } = req.body ?? {};
+  const { title, requiredIngredientIds, unmappedIngredientNames, estimatedTimeMin, difficulty, notes, imageUrl } = req.body ?? {};
 
   const existing = await queryOne<{ status: string; title: string }>(
     `SELECT status, title FROM imported_recipes_staging WHERE id = $1`,
@@ -235,6 +235,25 @@ export async function updateStagingRecipe(req: Request, res: Response): Promise<
   if (typeof notes === "string") {
     sets.push(`notes = $${pi++}`);
     params.push(notes);
+  }
+  if (imageUrl === null || typeof imageUrl === "string") {
+    // Accept null (clear) or string (absolute URL or `/objects/<uuid>` path).
+    if (typeof imageUrl === "string") {
+      const trimmed = imageUrl.trim();
+      const isHttp = /^https?:\/\//i.test(trimmed);
+      const isObjectPath = trimmed.startsWith("/objects/") || trimmed.startsWith("/public-objects/");
+      if (trimmed && !isHttp && !isObjectPath) {
+        res.status(400).json({
+          error: "imageUrl must be an http(s) URL or an /objects/ path",
+        });
+        return;
+      }
+      sets.push(`image_url = $${pi++}`);
+      params.push(trimmed || null);
+    } else {
+      sets.push(`image_url = $${pi++}`);
+      params.push(null);
+    }
   }
 
   if (!sets.length) {

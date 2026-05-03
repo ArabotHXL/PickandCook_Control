@@ -1598,6 +1598,12 @@ components:
           type: string
         notes:
           type: string
+        imageUrl:
+          type: string
+          nullable: true
+          description: |
+            Either an absolute http(s) URL or a normalized object-storage path
+            (e.g. `/objects/<uuid>`). Pass `null` to clear the image.
 
     OpsStagingDecisionBody:
       type: object

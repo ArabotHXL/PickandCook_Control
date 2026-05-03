@@ -6,3 +6,4 @@
 // here. Consumers needing the raw TS interfaces can import them directly
 // from `@workspace/api-zod/dist/generated/types/<file>`.
 export * from "./generated/api";
+export * from "./generated/types";
