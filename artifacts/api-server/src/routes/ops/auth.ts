@@ -17,6 +17,7 @@ const TOTP_CHALLENGE_EXPIRY = "5m";
 export interface AdminPayload {
   userId: string;
   role: string;
+  purpose: "admin_session";
 }
 
 interface TotpChallengePayload {
@@ -42,6 +43,14 @@ function makeRoleGate(allowed: readonly string[]) {
     }
     try {
       const payload = jwt.verify(token, JWT_SECRET) as AdminPayload;
+
+      // Reject TOTP challenge tokens and any token not explicitly marked as
+      // an authenticated admin session. This prevents a challenge token issued
+      // during the TOTP flow from being used to access protected routes.
+      if (payload.purpose !== "admin_session") {
+        res.status(401).json({ error: "Invalid token type" });
+        return;
+      }
 
       // Re-read the user's current role from the database on every request so
       // that role changes (e.g. demotions) take effect immediately without
@@ -70,6 +79,7 @@ function makeRoleGate(allowed: readonly string[]) {
       (req as Request & { adminUser: AdminPayload }).adminUser = {
         userId: payload.userId,
         role: currentUser.role,
+        purpose: "admin_session",
       };
       next();
     } catch {
@@ -94,7 +104,7 @@ export const requireAdminWrite = makeRoleGate(ADMIN_ROLES_WRITE);
 
 function signSessionToken(user: { id: string; role: string }): string {
   return jwt.sign(
-    { userId: user.id, role: user.role } satisfies AdminPayload,
+    { userId: user.id, role: user.role, purpose: "admin_session" } satisfies AdminPayload,
     JWT_SECRET,
     { expiresIn: TOKEN_EXPIRY }
   );

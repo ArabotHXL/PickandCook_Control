@@ -16,10 +16,52 @@
  *   4. POST /api/ops/auth/2fa/disable (auth-required) wipes the row.
  */
 import type { Request, Response } from "express";
+import { createCipheriv, createDecipheriv, randomBytes, createHash } from "crypto";
 import { query, queryOne } from "./db.js";
 import { writeAuditLog } from "./audit.js";
 import type { AdminPayload } from "./auth.js";
 import { generateSecret, generateURI, verifySync } from "otplib";
+
+// ── TOTP secret encryption ────────────────────────────────────────────────────
+// Secrets are stored encrypted with AES-256-GCM using a key that is never
+// persisted to the database. The stored format is:
+//   ENC:v1:<iv_hex>:<ciphertext_hex>:<authtag_hex>
+// Plaintext legacy secrets (no prefix) are decrypted transparently and
+// re-encrypted on the next successful verification.
+
+const TOTP_KEY_RAW = process.env.TOTP_ENCRYPTION_KEY;
+if (!TOTP_KEY_RAW || TOTP_KEY_RAW.length < 32) {
+  throw new Error(
+    "TOTP_ENCRYPTION_KEY env var must be set to a strong value (>=32 chars)"
+  );
+}
+const TOTP_ENC_KEY: Buffer = createHash("sha256").update(TOTP_KEY_RAW).digest();
+const ENC_PREFIX = "ENC:v1:";
+
+function encryptTotpSecret(secret: string): string {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", TOTP_ENC_KEY, iv);
+  const ciphertext = Buffer.concat([cipher.update(secret, "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return `${ENC_PREFIX}${iv.toString("hex")}:${ciphertext.toString("hex")}:${tag.toString("hex")}`;
+}
+
+function decryptTotpSecret(stored: string): string {
+  if (!stored.startsWith(ENC_PREFIX)) {
+    // Legacy plaintext secret — return as-is so existing accounts keep working
+    // until their next successful verification re-encrypts the value.
+    return stored;
+  }
+  const parts = stored.slice(ENC_PREFIX.length).split(":");
+  if (parts.length !== 3) throw new Error("Invalid encrypted TOTP secret format");
+  const [ivHex, ciphertextHex, tagHex] = parts;
+  const iv = Buffer.from(ivHex, "hex");
+  const ciphertext = Buffer.from(ciphertextHex, "hex");
+  const tag = Buffer.from(tagHex, "hex");
+  const decipher = createDecipheriv("aes-256-gcm", TOTP_ENC_KEY, iv);
+  decipher.setAuthTag(tag);
+  return decipher.update(ciphertext).toString("utf8") + decipher.final("utf8");
+}
 
 function getAdminUser(req: Request): AdminPayload {
   return (req as Request & { adminUser: AdminPayload }).adminUser;
@@ -81,13 +123,16 @@ export async function startTotpSetup(req: Request, res: Response): Promise<void>
     secret,
   });
 
+  const encryptedSecret = encryptTotpSecret(secret);
   await query(
     `INSERT INTO admin_totp (user_id, secret, enabled_at, created_at)
      VALUES ($1, $2, NULL, NOW())
      ON CONFLICT (user_id) DO UPDATE SET secret = EXCLUDED.secret, enabled_at = NULL`,
-    [admin.userId, secret]
+    [admin.userId, encryptedSecret]
   );
 
+  // Return the plaintext secret for the admin to scan — never log or store
+  // the decrypted value anywhere else.
   res.json({ secret, otpauthUri: otpauth, issuer: ISSUER });
 }
 
@@ -110,7 +155,7 @@ export async function verifyTotpSetup(req: Request, res: Response): Promise<void
     res.status(409).json({ error: "Already enabled" });
     return;
   }
-  const valid = verifySync({ token: code, secret: row.secret }).valid;
+  const valid = verifySync({ token: code, secret: decryptTotpSecret(row.secret) }).valid;
   if (!valid) {
     res.status(401).json({ error: "Invalid code" });
     return;
@@ -141,7 +186,7 @@ export async function disableTotp(req: Request, res: Response): Promise<void> {
     res.status(400).json({ error: "TOTP not enabled" });
     return;
   }
-  if (typeof code !== "string" || !verifySync({ token: code, secret: row.secret }).valid) {
+  if (typeof code !== "string" || !verifySync({ token: code, secret: decryptTotpSecret(row.secret) }).valid) {
     res.status(401).json({ error: "Valid TOTP code required to disable" });
     return;
   }
@@ -175,7 +220,9 @@ export async function verifyTotpCode(userId: string, code: string): Promise<bool
     [userId]
   );
   if (!row?.enabled_at) return false;
-  const ok = verifySync({ token: code, secret: row.secret }).valid;
+
+  const plaintextSecret = decryptTotpSecret(row.secret);
+  const ok = verifySync({ token: code, secret: plaintextSecret }).valid;
   if (!ok) return false;
 
   // Replay protection: the verifySync window is the current 30s slot. Atomically
@@ -183,13 +230,19 @@ export async function verifyTotpCode(userId: string, code: string): Promise<bool
   // reject — the same code can't be replayed within its 30s lifetime even if
   // the attacker has the challenge JWT and the captured code.
   const win = currentTotpWindow();
+
+  // If this secret was stored in plaintext (legacy), re-encrypt it now so that
+  // all active TOTP secrets are encrypted at rest after each admin logs in.
+  const needsReencrypt = !row.secret.startsWith(ENC_PREFIX);
+  const updatedSecret = needsReencrypt ? encryptTotpSecret(plaintextSecret) : row.secret;
+
   const claim = await query<{ id: string }>(
     `UPDATE admin_totp
-        SET last_used_window = $2, last_verified_at = NOW()
+        SET last_used_window = $2, last_verified_at = NOW(), secret = $3
       WHERE user_id = $1
         AND (last_used_window IS NULL OR last_used_window < $2)
       RETURNING user_id AS id`,
-    [userId, win]
+    [userId, win, updatedSecret]
   );
   return claim.length > 0;
 }
