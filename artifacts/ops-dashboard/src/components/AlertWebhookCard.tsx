@@ -23,6 +23,19 @@ export function AlertWebhookCard({ flagsData, flagsLoading }: AlertWebhookCardPr
   const [draftUrl, setDraftUrl] = useState<string | null>(null);
   const url = draftUrl ?? currentUrl;
 
+  // Client-side guard: only HTTPS URLs are accepted by the server.
+  const urlValidationError = (() => {
+    if (!url) return null;
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== "https:") return "Only HTTPS URLs are accepted.";
+    } catch {
+      return "Enter a valid URL.";
+    }
+    return null;
+  })();
+  const urlIsInvalid = draftUrl !== null && draftUrl !== "" && urlValidationError !== null;
+
   const updateFlag = useMutation({
     mutationFn: ({ key, value }: { key: string; value: unknown }) =>
       apiFetch("/api/ops/system/flags/system", {
@@ -91,9 +104,12 @@ export function AlertWebhookCard({ flagsData, flagsLoading }: AlertWebhookCardPr
               value={url}
               onChange={(e) => setDraftUrl(e.target.value)}
               placeholder="https://hooks.slack.com/services/…"
-              className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring font-mono"
+              className={`w-full px-3 py-2 rounded-md border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring font-mono ${urlIsInvalid ? "border-destructive focus:ring-destructive" : "border-input"}`}
               data-testid="input-webhook-url"
             />
+            {urlIsInvalid && (
+              <p className="text-xs text-destructive">{urlValidationError}</p>
+            )}
           </div>
 
           <div className="flex items-center justify-between">
@@ -121,7 +137,7 @@ export function AlertWebhookCard({ flagsData, flagsLoading }: AlertWebhookCardPr
                   </button>
                   <button
                     onClick={() => updateFlag.mutate({ key: "alert_webhook_url", value: draftUrl || null })}
-                    disabled={updateFlag.isPending}
+                    disabled={updateFlag.isPending || urlIsInvalid}
                     className="px-3 py-1.5 rounded bg-primary text-primary-foreground text-xs font-medium hover:opacity-90 disabled:opacity-50"
                     data-testid="save-webhook-url"
                   >

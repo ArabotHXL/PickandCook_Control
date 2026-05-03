@@ -13,6 +13,7 @@
  */
 import { queryOne } from "../routes/ops/db.js";
 import { logger } from "./logger.js";
+import { validateWebhookUrl } from "./webhookUrlValidation.js";
 
 const TIMEOUT_MS = 5000;
 
@@ -72,6 +73,18 @@ export async function sendAlert(payload: AlertPayload): Promise<{ delivered: boo
 
   if (!cfg.enabled) return { delivered: false, reason: "disabled" };
   if (!cfg.url) return { delivered: false, reason: "no_url" };
+
+  // Guard against SSRF: validate the URL before every outbound request.
+  // An admin may have stored a URL that was valid at write-time but whose
+  // DNS record has since changed to a private address, so we re-check here.
+  const urlCheck = await validateWebhookUrl(cfg.url);
+  if (!urlCheck.valid) {
+    logger.warn(
+      { reason: urlCheck.reason },
+      "[alerts] webhook URL failed SSRF validation — delivery skipped"
+    );
+    return { delivered: false, reason: `url_blocked:${urlCheck.reason}` };
+  }
 
   const ctl = new AbortController();
   const t = setTimeout(() => ctl.abort(), TIMEOUT_MS);

@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import { query } from "./db.js";
 import { writeAuditLog } from "./audit.js";
 import type { AdminPayload } from "./auth.js";
+import { validateWebhookUrl } from "../../lib/webhookUrlValidation.js";
 
 function getAdminUser(req: Request): AdminPayload {
   return (req as Request & { adminUser: AdminPayload }).adminUser;
@@ -35,6 +36,24 @@ export async function updateFlag(req: Request, res: Response): Promise<void> {
   if (!key || typeof key !== "string") {
     res.status(400).json({ error: "key (string) is required" });
     return;
+  }
+
+  // Validate alert_webhook_url before persisting to prevent SSRF.
+  // Only applies when a non-empty string value is supplied; null/empty clears the URL.
+  if (scopeId === "system" && key === "alert_webhook_url") {
+    if (value !== null && value !== undefined && value !== "") {
+      if (typeof value !== "string") {
+        res.status(400).json({ error: "alert_webhook_url must be a string" });
+        return;
+      }
+      const check = await validateWebhookUrl(value);
+      if (!check.valid) {
+        res.status(400).json({
+          error: `Webhook URL is not allowed: ${check.reason}. Only HTTPS URLs pointing to public external hosts are accepted.`,
+        });
+        return;
+      }
+    }
   }
 
   const existing = await query<{ flags: Record<string, unknown> }>(
