@@ -4,6 +4,7 @@ import { runJob } from "./runner.js";
 import { ensureJobSchema, ensureOpsSchema } from "./migrations.js";
 import { logger } from "../lib/logger.js";
 import { query } from "../routes/ops/db.js";
+import { validateCronPolicy } from "../lib/cronPolicy.js";
 
 let started = false;
 const tasks = new Map<string, ScheduledTask>();
@@ -24,6 +25,11 @@ export async function getCronOverrides(): Promise<Record<string, string>> {
     const out: Record<string, string> = {};
     for (const [k, v] of Object.entries(flags)) {
       if (typeof v === "string" && v.trim() && cron.validate(v.trim())) {
+        const policy = validateCronPolicy(v.trim());
+        if (!policy.ok) {
+          logger.warn({ jobName: k, cronExpr: v.trim(), reason: policy.reason }, "[worker] cron override rejected by policy; using default");
+          continue;
+        }
         out[k] = v.trim();
       }
     }
@@ -46,6 +52,11 @@ function scheduleOne(jobName: string, cronExpr: string): void {
   if (!def) return;
   if (!cron.validate(cronExpr)) {
     logger.error({ jobName, cronExpr }, "[worker] refusing to schedule invalid cron");
+    return;
+  }
+  const policy = validateCronPolicy(cronExpr);
+  if (!policy.ok) {
+    logger.error({ jobName, cronExpr, reason: policy.reason }, "[worker] refusing to schedule cron expression that violates policy");
     return;
   }
   const existing = tasks.get(jobName);

@@ -64,7 +64,7 @@ function isBlockedIpv6(ip: string): boolean {
 const IPV4_RE = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
 
 export type ValidationResult =
-  | { valid: true }
+  | { valid: true; pinnedAddress?: string }
   | { valid: false; reason: string };
 
 /**
@@ -129,6 +129,7 @@ export async function validateWebhookUrl(
     return { valid: false, reason: "dns_no_results" };
   }
 
+  let pinnedAddress: string | undefined;
   for (const { address, family } of addresses) {
     if (family === 4 && isBlockedIpv4(address)) {
       return { valid: false, reason: "resolves_to_private_ip" };
@@ -136,7 +137,10 @@ export async function validateWebhookUrl(
     if (family === 6 && isBlockedIpv6(address)) {
       return { valid: false, reason: "resolves_to_private_ip" };
     }
+    if (!pinnedAddress) {
+      pinnedAddress = address;
+    }
   }
 
-  return { valid: true };
+  return { valid: true, pinnedAddress };
 }

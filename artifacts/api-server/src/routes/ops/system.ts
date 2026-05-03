@@ -4,6 +4,7 @@ import { parseLimit, parsePage } from "./queryParams.js";
 import { writeAuditLog } from "./audit.js";
 import type { AdminPayload } from "./auth.js";
 import { HttpError } from "../../lib/httpError.js";
+import { validateCronPolicy } from "../../lib/cronPolicy.js";
 import cron from "node-cron";
 import { JOB_DEFINITIONS, getJob } from "../../jobs/registry.js";
 import {
@@ -306,8 +307,14 @@ export async function updateJobSchedule(req: Request, res: Response): Promise<vo
   if (typeof next === "string") next = next.trim();
   const clearing = next === null || next === undefined || next === "";
 
-  if (!clearing && !cron.validate(next as string)) {
-    throw new HttpError(400, `Invalid cron expression: ${String(next)}`);
+  if (!clearing) {
+    if (!cron.validate(next as string)) {
+      throw new HttpError(400, `Invalid cron expression: ${String(next)}`);
+    }
+    const policy = validateCronPolicy(next as string);
+    if (!policy.ok) {
+      throw new HttpError(400, `Cron expression rejected by policy: ${policy.reason}`);
+    }
   }
 
   // Snapshot prior value for audit only — the actual write below is atomic
