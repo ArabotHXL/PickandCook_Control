@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { Readable } from "stream";
-import { ObjectStorageService, ObjectNotFoundError, ALLOWED_IMAGE_CONTENT_TYPES } from "../lib/objectStorage";
-import { requireAdmin } from "./ops/auth.js";
+import { ObjectStorageService, ObjectNotFoundError, ALLOWED_IMAGE_CONTENT_TYPES, MAX_UPLOAD_SIZE_BYTES } from "../lib/objectStorage";
+import { requireAdmin, requireAdminWrite } from "./ops/auth.js";
 
 const router: IRouter = Router();
 const objectStorageService = new ObjectStorageService();
@@ -18,24 +18,41 @@ const objectStorageService = new ObjectStorageService();
  * URLs for non-image content that could later be served as executable HTML on
  * the app origin.
  */
-router.post("/storage/uploads/request-url", requireAdmin, async (req: Request, res: Response) => {
+router.post("/storage/uploads/request-url", requireAdminWrite, async (req: Request, res: Response) => {
   const { name, size, contentType } = (req.body ?? {}) as {
-    name?: string;
-    size?: number;
-    contentType?: string;
+    name?: unknown;
+    size?: unknown;
+    contentType?: unknown;
   };
   if (!name || typeof name !== "string") {
     res.status(400).json({ error: "name is required" });
     return;
   }
-  if (!contentType || !ALLOWED_IMAGE_CONTENT_TYPES.has(contentType)) {
+  if (!contentType || !ALLOWED_IMAGE_CONTENT_TYPES.has(contentType as string)) {
     res.status(400).json({
       error: `contentType must be one of: ${[...ALLOWED_IMAGE_CONTENT_TYPES].join(", ")}`,
     });
     return;
   }
+  if (size === undefined || size === null) {
+    res.status(400).json({ error: "size is required" });
+    return;
+  }
+  if (typeof size !== "number" || !Number.isFinite(size) || size < 0) {
+    res.status(400).json({ error: "size must be a non-negative number" });
+    return;
+  }
+  if (size > MAX_UPLOAD_SIZE_BYTES) {
+    res.status(400).json({
+      error: `size exceeds maximum allowed upload size of ${MAX_UPLOAD_SIZE_BYTES} bytes`,
+    });
+    return;
+  }
   try {
-    const uploadURL = await objectStorageService.getObjectEntityUploadURL();
+    const uploadURL = await objectStorageService.getObjectEntityUploadURL({
+      contentType: contentType as string,
+      maxBytes: Math.min(size, MAX_UPLOAD_SIZE_BYTES),
+    });
     const objectPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
     res.json({ uploadURL, objectPath, metadata: { name, size, contentType } });
   } catch (error) {

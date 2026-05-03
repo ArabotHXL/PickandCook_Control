@@ -22,6 +22,13 @@ export const ALLOWED_IMAGE_CONTENT_TYPES: ReadonlySet<string> = new Set([
   "image/avif",
 ]);
 
+/**
+ * Maximum size (in bytes) permitted for a single upload. Callers that declare
+ * a size larger than this will be rejected before a signed URL is issued.
+ * 10 MiB is a reasonable ceiling for recipe imagery.
+ */
+export const MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024;
+
 const REPLIT_SIDECAR_ENDPOINT = "http://127.0.0.1:1106";
 
 export const objectStorageClient = new Storage({
@@ -131,7 +138,13 @@ export class ObjectStorageService {
     return new Response(webStream, { headers });
   }
 
-  async getObjectEntityUploadURL(): Promise<string> {
+  async getObjectEntityUploadURL({
+    contentType,
+    maxBytes,
+  }: {
+    contentType: string;
+    maxBytes: number;
+  }): Promise<string> {
     const privateObjectDir = this.getPrivateObjectDir();
     if (!privateObjectDir) {
       throw new Error(
@@ -150,6 +163,8 @@ export class ObjectStorageService {
       objectName,
       method: "PUT",
       ttlSec: 900,
+      contentType,
+      maxBytes,
     });
   }
 
@@ -257,18 +272,28 @@ async function signObjectURL({
   objectName,
   method,
   ttlSec,
+  contentType,
+  maxBytes,
 }: {
   bucketName: string;
   objectName: string;
   method: "GET" | "PUT" | "DELETE" | "HEAD";
   ttlSec: number;
+  contentType?: string;
+  maxBytes?: number;
 }): Promise<string> {
-  const request = {
+  const request: Record<string, string | number> = {
     bucket_name: bucketName,
     object_name: objectName,
     method,
     expires_at: new Date(Date.now() + ttlSec * 1000).toISOString(),
   };
+  if (contentType) {
+    request.content_type = contentType;
+  }
+  if (maxBytes !== undefined) {
+    request.max_bytes = maxBytes;
+  }
   const response = await fetch(
     `${REPLIT_SIDECAR_ENDPOINT}/object-storage/signed-object-url`,
     {
