@@ -19,7 +19,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import {
-  CheckCircle,
+  CheckCircle2,
   XCircle,
   Search,
   ExternalLink,
@@ -28,10 +28,16 @@ import {
   Keyboard,
   Clock,
   BookOpen,
-  ListFilter,
   Image as ImageIcon,
   ChevronLeft,
   ChevronRight,
+  Check,
+  X,
+  AlertCircle,
+  Sparkles,
+  ArrowDown,
+  Info,
+  ListChecks,
 } from "lucide-react";
 
 const STATUS_BADGE: Record<string, string> = {
@@ -57,12 +63,199 @@ const FILTER_TITLES: Record<string, string> = {
     "Everything not yet promoted or rejected (imported + ready + needs review)",
 };
 
-function MappingSwatch({ rate }: { rate: number | null | undefined }) {
-  if (rate == null) return <div className="w-1.5 self-stretch bg-muted shrink-0" />;
-  const pct = Math.round(rate * 100);
-  const colorClass =
-    pct >= 80 ? "bg-emerald-500" : pct >= 50 ? "bg-yellow-500" : "bg-red-500";
-  return <div className={cn("w-1.5 self-stretch shrink-0", colorClass)} title={`${pct}% mapped`} />;
+type CheckState = "pass" | "warn" | "fail";
+type CheckResult = {
+  key: string;
+  label: string;
+  state: CheckState;
+  anchor?: string;
+};
+
+// Row-level checks. The list endpoint omits `instructionsSummary`, so
+// instructions are not part of the row dot row — only the detail view
+// surfaces that fifth check.
+function getRowChecks(r: OpsStagingRow): CheckResult[] {
+  const unmapped = r.unmappedIngredientNames.length;
+  return [
+    {
+      key: "title",
+      label: r.title ? "Title set" : "Title missing",
+      state: r.title ? "pass" : "fail",
+    },
+    {
+      key: "image",
+      label: r.imageUrl ? "Image present" : "No image attached",
+      state: r.imageUrl ? "pass" : "warn",
+    },
+    {
+      key: "ingredients",
+      label:
+        unmapped === 0
+          ? "All ingredients mapped"
+          : `${unmapped} ingredient${unmapped === 1 ? "" : "s"} unmapped`,
+      state: unmapped === 0 ? "pass" : "fail",
+    },
+    {
+      key: "time",
+      label: r.estimatedTimeMin ? "Cooking time set" : "Cooking time missing",
+      state: r.estimatedTimeMin ? "pass" : "warn",
+    },
+  ];
+}
+
+function getDetailChecks(d: OpsStagingDetail): CheckResult[] {
+  const unmapped = d.unmappedIngredientNames.length;
+  const hasSteps =
+    (Array.isArray(d.instructionsSteps) && d.instructionsSteps.length > 0) ||
+    (typeof d.instructionsSummary === "string" && d.instructionsSummary.trim().length > 0);
+  return [
+    {
+      key: "title",
+      label: d.title ? "Title set" : "Title missing",
+      state: d.title ? "pass" : "fail",
+      anchor: "section-header",
+    },
+    {
+      key: "image",
+      label: d.imageUrl ? "Image present" : "No image attached",
+      state: d.imageUrl ? "pass" : "warn",
+      anchor: "section-media",
+    },
+    {
+      key: "ingredients",
+      label:
+        unmapped === 0
+          ? "All ingredients mapped"
+          : `${unmapped} ingredient${unmapped === 1 ? "" : "s"} unmapped — resolve below`,
+      state: unmapped === 0 ? "pass" : "fail",
+      anchor: "section-unmapped",
+    },
+    {
+      key: "instructions",
+      label: hasSteps
+        ? "Cooking steps captured"
+        : "No cooking steps — operator must add",
+      state: hasSteps ? "pass" : "fail",
+      anchor: "section-instructions",
+    },
+    {
+      key: "time",
+      label: d.estimatedTimeMin ? "Cooking time set" : "Cooking time missing",
+      state: d.estimatedTimeMin ? "pass" : "warn",
+      anchor: "section-meta",
+    },
+  ];
+}
+
+function readinessFromChecks(checks: CheckResult[]) {
+  const total = checks.length || 1;
+  const passCount = checks.filter((c) => c.state === "pass").length;
+  const unresolved = checks.filter((c) => c.state !== "pass").length;
+  return {
+    pct: Math.round((passCount / total) * 100),
+    passCount,
+    total: checks.length,
+    unresolved,
+  };
+}
+
+// Pull cooking steps out of detail. Prefer structured `instructionsSteps`
+// (Wikibooks gives us `{ text, index }`-shaped objects); fall back to
+// splitting `instructionsSummary` on newlines, semicolons, or sentence
+// boundaries so the operator at least gets a numbered list.
+function getCookingSteps(d: OpsStagingDetail): string[] {
+  if (Array.isArray(d.instructionsSteps) && d.instructionsSteps.length > 0) {
+    const out: string[] = [];
+    for (const raw of d.instructionsSteps) {
+      if (typeof raw === "string") {
+        const t = raw.trim();
+        if (t) out.push(t);
+        continue;
+      }
+      if (raw && typeof raw === "object") {
+        const obj = raw as Record<string, unknown>;
+        const candidate =
+          (typeof obj.text === "string" && obj.text) ||
+          (typeof obj.step === "string" && obj.step) ||
+          (typeof obj.instruction === "string" && obj.instruction) ||
+          "";
+        const t = candidate.trim();
+        if (t) out.push(t);
+      }
+    }
+    if (out.length > 0) return out;
+  }
+  const summary = d.instructionsSummary?.trim();
+  if (!summary) return [];
+  // Try newlines first (real recipes usually break on newlines).
+  let parts = summary.split(/\r?\n+/).map((s) => s.trim()).filter(Boolean);
+  if (parts.length <= 1) {
+    // Fall back to "; " or sentence boundary.
+    parts = summary
+      .split(/;|\.\s+(?=[A-Z])/)
+      .map((s) => s.replace(/^\s+|[\s.;]+$/g, ""))
+      .filter(Boolean);
+  }
+  return parts.map((s) => s.charAt(0).toUpperCase() + s.slice(1));
+}
+
+function ReadinessDots({ checks }: { checks: CheckResult[] }) {
+  return (
+    <div className="flex items-center gap-1" aria-label="Readiness">
+      {checks.map((c) => (
+        <span
+          key={c.key}
+          title={c.label}
+          className={cn(
+            "w-2 h-2 rounded-full",
+            c.state === "pass" && "bg-emerald-500",
+            c.state === "warn" && "bg-amber-400",
+            c.state === "fail" && "bg-border",
+          )}
+        />
+      ))}
+    </div>
+  );
+}
+
+function ProgressRing({ pct, size = 80 }: { pct: number; size?: number }) {
+  const stroke = 8;
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const offset = c - (pct / 100) * c;
+  const color = pct >= 100 ? "hsl(var(--primary))" : pct >= 60 ? "#f59e0b" : "#ef4444";
+  return (
+    <div className="relative shrink-0" style={{ width: size, height: size }}>
+      <svg width={size} height={size} className="-rotate-90">
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          stroke="hsl(var(--muted))"
+          strokeWidth={stroke}
+          fill="none"
+        />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          stroke={color}
+          strokeWidth={stroke}
+          fill="none"
+          strokeDasharray={c}
+          strokeDashoffset={offset}
+          strokeLinecap="round"
+          style={{ transition: "stroke-dashoffset 400ms ease" }}
+        />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="text-lg font-bold tabular-nums leading-none">{pct}%</span>
+        <span className="text-[9px] uppercase tracking-wider text-muted-foreground mt-0.5">
+          ready
+        </span>
+      </div>
+    </div>
+  );
 }
 
 function Kbd({ children }: { children: React.ReactNode }) {
@@ -84,62 +277,54 @@ function QueueRow({
   onClick: () => void;
   registerRef: (el: HTMLDivElement | null) => void;
 }) {
+  const checks = getRowChecks(r);
+  const ready = readinessFromChecks(checks);
   return (
     <div
       ref={registerRef}
       onClick={onClick}
       data-testid={`queue-row-${r.id}`}
+      title={`Imported from ${r.source} · ${new Date(r.createdAt).toLocaleString()}`}
       className={cn(
-        "group flex cursor-pointer transition-colors border-l-[3px]",
+        "group cursor-pointer transition-colors border-l-[3px] p-3",
         selected
           ? "bg-primary/5 border-l-primary"
           : "hover:bg-muted/50 border-l-transparent",
       )}
     >
-      <MappingSwatch rate={r.mappingRate} />
-      <div className="flex-1 p-3 min-w-0">
-        <div className="flex items-center justify-between gap-2 mb-1">
-          <span className="text-[10px] uppercase font-semibold tracking-wider text-muted-foreground">
-            {r.source}
-          </span>
-          <span className="text-xs font-medium tabular-nums opacity-60">
-            {r.mappingRate != null ? `${Math.round(r.mappingRate * 100)}%` : "—"}
-          </span>
-        </div>
-        <h3
+      <div className="flex items-center justify-between gap-2 mb-1">
+        <span className="text-[10px] uppercase font-semibold tracking-wider text-muted-foreground">
+          {r.source}
+        </span>
+        <ReadinessDots checks={checks} />
+      </div>
+      <h3
+        className={cn(
+          "text-sm font-medium leading-tight truncate",
+          selected ? "text-primary" : "text-foreground",
+        )}
+      >
+        {r.title}
+      </h3>
+      <div className="flex items-center justify-between gap-2 mt-2">
+        <span
           className={cn(
-            "text-sm font-medium leading-tight truncate",
-            selected ? "text-primary" : "text-foreground",
+            "px-1.5 py-0.5 rounded text-[10px] font-medium border",
+            STATUS_BADGE[r.status] ?? "bg-muted text-muted-foreground border-transparent",
           )}
         >
-          {r.title}
-        </h3>
-        <div className="flex items-center justify-between gap-2 mt-2">
-          <span
-            className={cn(
-              "px-1.5 py-0.5 rounded text-[10px] font-medium border",
-              STATUS_BADGE[r.status] ??
-                "bg-muted text-muted-foreground border-transparent",
-            )}
-          >
-            {r.status}
+          {r.status}
+        </span>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span className="tabular-nums">
+            {ready.passCount}/{ready.total} checks
           </span>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            {r.unmappedIngredientNames.length > 0 && (
-              <span className="flex items-center gap-1 text-orange-600 font-medium">
-                <AlertTriangle className="w-3 h-3" />{" "}
-                {r.unmappedIngredientNames.length}
-              </span>
-            )}
-            {r.createdAt && (
-              <span>
-                {new Date(r.createdAt).toLocaleDateString(undefined, {
-                  month: "short",
-                  day: "numeric",
-                })}
-              </span>
-            )}
-          </div>
+          {r.unmappedIngredientNames.length > 0 && (
+            <span className="flex items-center gap-1 text-amber-600 font-medium">
+              <AlertTriangle className="w-3 h-3" />
+              {r.unmappedIngredientNames.length}
+            </span>
+          )}
         </div>
       </div>
     </div>
@@ -184,168 +369,284 @@ function DetailPane({
   const promoteDisabledFinal = promoteDisabled || isFinal;
   const rejectDisabledFinal = rejectDisabled || isFinal;
 
+  const checks = getDetailChecks(detail);
+  const readiness = readinessFromChecks(checks);
+  const allClear = readiness.unresolved === 0;
+  const totalIngredients =
+    detail.mappedIngredientCount + detail.unmappedIngredientNames.length;
+  const steps = getCookingSteps(detail);
+
+  const scrollTo = (anchor?: string) => {
+    if (!anchor) return;
+    const el = document.getElementById(anchor);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
   return (
     <>
       <ScrollArea className="flex-1">
-        <div className="px-8 py-8 max-w-3xl mx-auto space-y-8 pb-32">
-          <div className="space-y-3">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <div className="px-8 py-6 max-w-4xl mx-auto space-y-6 pb-48">
+          {/* Header */}
+          <div id="section-header" className="space-y-2">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
               <span className="uppercase tracking-wider font-semibold text-[10px] bg-muted px-2 py-0.5 rounded">
                 {detail.source}
               </span>
-              <span>
-                ID: <span className="font-mono text-xs">{detail.sourceRecipeId}</span>
-              </span>
-              {detail.promotedRecipeId && (
-                <Link
-                  href={`/recipes/${detail.promotedRecipeId}`}
-                  className="ml-2 text-primary hover:underline flex items-center gap-1 text-xs"
-                >
-                  <ExternalLink className="w-3 h-3" />
-                  recipe {detail.promotedRecipeId.slice(0, 8)}
-                </Link>
+              {detail.sourceRecipeId && (
+                <span>
+                  ID: <span className="font-mono">{detail.sourceRecipeId}</span>
+                </span>
               )}
-            </div>
-            <h2 className="text-3xl font-bold tracking-tight text-foreground leading-tight">
-              {detail.title}
-            </h2>
-            <div className="flex items-center gap-3 flex-wrap">
               <span
                 className={cn(
-                  "px-2 py-1 rounded text-xs font-semibold border uppercase tracking-wider",
+                  "px-1.5 py-0.5 rounded text-[10px] font-medium border ml-1",
                   STATUS_BADGE[detail.status] ?? "bg-muted",
                 )}
               >
                 {detail.status}
               </span>
-              {detail.cuisineTags.length > 0 && (
-                <div className="flex items-center gap-1.5 border-l border-border pl-3">
-                  {detail.cuisineTags.map((tag) => (
-                    <span key={tag} className="text-sm text-muted-foreground">
-                      {tag}
-                    </span>
-                  ))}
-                </div>
+              {detail.promotedRecipeId && (
+                <Link
+                  href={`/recipes/${detail.promotedRecipeId}`}
+                  className="ml-1 text-primary hover:underline flex items-center gap-1"
+                >
+                  <ExternalLink className="w-3 h-3" />
+                  recipe {detail.promotedRecipeId.slice(0, 8)}
+                </Link>
               )}
               {detail.sourceUrl && (
                 <a
                   href={detail.sourceUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="text-xs text-primary hover:underline flex items-center gap-1 ml-auto"
+                  className="ml-auto text-primary hover:underline flex items-center gap-1"
                 >
                   <ExternalLink className="w-3 h-3" />
                   Source URL
                 </a>
               )}
             </div>
+            <h2 className="text-2xl font-bold tracking-tight leading-tight">
+              {detail.title}
+            </h2>
           </div>
 
-          <div className="grid grid-cols-[1.5fr_1fr] gap-8">
-            <div className="space-y-8">
-              <div className="space-y-4">
-                <h3 className="text-lg font-semibold flex items-center gap-2 border-b border-border pb-2">
-                  <BookOpen className="w-5 h-5 text-muted-foreground" />
-                  Ingredients analysis
-                </h3>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-card border border-border rounded-lg p-4">
-                    <p className="text-sm text-muted-foreground mb-1">
-                      Mapped to catalog
-                    </p>
-                    <p className="text-2xl font-semibold tabular-nums text-foreground">
-                      {detail.mappedIngredientCount}
-                    </p>
-                  </div>
-                  <div
-                    className={cn(
-                      "border rounded-lg p-4",
-                      detail.unmappedIngredientNames.length > 0
-                        ? "border-orange-200 bg-orange-50/50"
-                        : "border-border bg-card",
-                    )}
-                  >
-                    <p
-                      className={cn(
-                        "text-sm mb-1",
-                        detail.unmappedIngredientNames.length > 0
-                          ? "text-orange-800"
-                          : "text-muted-foreground",
-                      )}
-                    >
-                      Unmapped
-                    </p>
-                    <p
-                      className={cn(
-                        "text-2xl font-semibold tabular-nums",
-                        detail.unmappedIngredientNames.length > 0
-                          ? "text-orange-600"
-                          : "text-foreground",
-                      )}
-                    >
-                      {detail.unmappedIngredientNames.length}
+          {/* Readiness Summary */}
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+            <div className="flex items-start gap-5">
+              <ProgressRing pct={readiness.pct} />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <h3 className="text-sm font-semibold flex items-center gap-2">
+                      <ListChecks className="w-4 h-4 text-primary" /> Readiness checks
+                    </h3>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {readiness.passCount} of {readiness.total} passing ·{" "}
+                      {readiness.unresolved} blocking promotion
                     </p>
                   </div>
+                  {allClear ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium bg-emerald-100 text-emerald-700 border border-emerald-200">
+                      <Check className="w-3 h-3" /> Ready to promote
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium bg-amber-100 text-amber-700 border border-amber-200">
+                      <AlertCircle className="w-3 h-3" /> {readiness.unresolved} to fix
+                    </span>
+                  )}
                 </div>
-                {detail.unmappedIngredientNames.length > 0 && (
-                  <div className="rounded-lg border border-orange-200 bg-orange-50/80 p-4">
-                    <p className="text-sm font-medium text-orange-900 mb-3 flex items-center gap-2">
-                      <AlertTriangle className="w-4 h-4" />
-                      {detail.unmappedIngredientNames.length} ingredient(s) won&apos;t
-                      map to your products catalog
-                    </p>
-                    <ul className="text-sm text-orange-900/90 space-y-1.5 pl-6 list-disc">
-                      {detail.unmappedIngredientNames.map((n) => (
-                        <li key={n}>{n}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
+                <ul className="space-y-1.5">
+                  {checks.map((c) => {
+                    const Icon =
+                      c.state === "pass" ? Check : c.state === "warn" ? AlertTriangle : X;
+                    const colorWrap =
+                      c.state === "pass"
+                        ? "bg-emerald-100 text-emerald-700"
+                        : c.state === "warn"
+                          ? "bg-amber-100 text-amber-700"
+                          : "bg-red-100 text-red-700";
+                    const clickable = c.state !== "pass" && c.anchor;
+                    return (
+                      <li key={c.key}>
+                        <button
+                          type="button"
+                          onClick={() => clickable && scrollTo(c.anchor)}
+                          className={cn(
+                            "w-full flex items-center gap-2 text-sm py-1 px-1 rounded text-left",
+                            clickable
+                              ? "hover:bg-muted cursor-pointer"
+                              : "cursor-default",
+                          )}
+                        >
+                          <span
+                            className={cn(
+                              "inline-flex w-5 h-5 rounded-full items-center justify-center shrink-0",
+                              colorWrap,
+                            )}
+                          >
+                            <Icon className="w-3 h-3" strokeWidth={3} />
+                          </span>
+                          <span
+                            className={cn(
+                              "flex-1",
+                              c.state === "pass" && "text-muted-foreground",
+                            )}
+                          >
+                            {c.label}
+                          </span>
+                          {clickable && (
+                            <span className="text-[11px] text-primary font-medium inline-flex items-center gap-0.5">
+                              Jump <ArrowDown className="w-3 h-3" />
+                            </span>
+                          )}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
               </div>
+            </div>
+          </div>
 
-              {detail.instructionsSummary && (
-                <div className="space-y-4">
-                  <h3 className="text-lg font-semibold flex items-center gap-2 border-b border-border pb-2">
-                    <ListFilter className="w-5 h-5 text-muted-foreground" />
-                    Instructions
-                  </h3>
-                  <p className="text-base text-foreground/90 leading-relaxed bg-muted/30 p-4 rounded-lg border border-border/50 whitespace-pre-wrap">
-                    {detail.instructionsSummary.length > 1200
-                      ? detail.instructionsSummary.slice(0, 1200) + "…"
-                      : detail.instructionsSummary}
-                  </p>
-                </div>
+          {/* Unmapped resolver — no fake suggestion pills, since we don't yet
+              have an ingredient-search API. We show the raw names prominently
+              and point operators at the existing top-bar Re-map action. */}
+          <div
+            id="section-unmapped"
+            className={cn(
+              "rounded-xl border bg-card overflow-hidden",
+              detail.unmappedIngredientNames.length > 0
+                ? "border-amber-300/70 ring-1 ring-amber-200/60"
+                : "border-border",
+            )}
+          >
+            <div className="flex items-center justify-between px-5 py-3 border-b border-border bg-muted/30 gap-3 flex-wrap">
+              <div className="flex items-center gap-2">
+                <Wand2 className="w-4 h-4 text-primary" />
+                <h3 className="text-sm font-semibold">Unmapped ingredients</h3>
+                <span className="text-xs text-muted-foreground">
+                  {detail.unmappedIngredientNames.length} of {totalIngredients} total
+                </span>
+              </div>
+              {detail.unmappedIngredientNames.length > 0 && (
+                <span className="text-[11px] text-muted-foreground">
+                  Use <span className="font-medium text-foreground">Re-map ingredients</span>{" "}
+                  in the top bar to retry mapping
+                </span>
               )}
             </div>
 
-            <div className="space-y-6">
-              <div className="rounded-lg overflow-hidden border border-border bg-card aspect-[4/3] flex items-center justify-center">
-                {detail.imageUrl ? (
-                  <img
-                    src={detail.imageUrl}
-                    alt={detail.title}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="flex flex-col items-center gap-2 text-muted-foreground/50">
-                    <ImageIcon className="w-12 h-12" />
-                    <span className="text-sm font-medium">No image</span>
-                  </div>
-                )}
+            {detail.unmappedIngredientNames.length === 0 ? (
+              <div className="px-5 py-8 text-center text-sm text-muted-foreground">
+                <CheckCircle2 className="w-6 h-6 mx-auto mb-2 text-emerald-500" />
+                Nothing to resolve — all {detail.mappedIngredientCount} ingredients are
+                mapped.
               </div>
-              <div className="bg-card border border-border rounded-lg divide-y divide-border">
+            ) : (
+              <ul className="divide-y divide-border" data-testid="unmapped-list">
+                {detail.unmappedIngredientNames.map((name) => (
+                  <li
+                    key={name}
+                    className="px-5 py-3 grid grid-cols-[200px_1fr] items-center gap-4"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+                        <span className="text-sm font-medium truncate" title={name}>
+                          {name}
+                        </span>
+                      </div>
+                      <span className="text-[11px] text-muted-foreground ml-3.5">
+                        raw text from import
+                      </span>
+                    </div>
+                    <div className="relative">
+                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                      <input
+                        type="search"
+                        defaultValue={name}
+                        disabled
+                        aria-disabled="true"
+                        title="Catalog search coming soon — use Re-map ingredients in the top bar for now"
+                        className="w-full pl-8 pr-3 py-1.5 text-xs rounded border border-input bg-muted/40 text-muted-foreground cursor-not-allowed"
+                        placeholder="Catalog search coming soon"
+                      />
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {/* Cooking steps — full width, prominent so the operator can read the recipe. */}
+          <div
+            id="section-instructions"
+            className="rounded-2xl border border-border bg-card p-5 space-y-4"
+            data-testid="section-instructions"
+          >
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <h3 className="text-sm font-semibold flex items-center gap-2">
+                <BookOpen className="w-4 h-4 text-muted-foreground" />
+                Cooking steps
+              </h3>
+              {steps.length > 0 && (
+                <span className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                  {steps.length} step{steps.length === 1 ? "" : "s"}
+                  {Array.isArray(detail.instructionsSteps) &&
+                  detail.instructionsSteps.length > 0
+                    ? " · structured"
+                    : " · parsed from summary"}
+                </span>
+              )}
+            </div>
+            {steps.length > 0 ? (
+              <ol className="space-y-3">
+                {steps.map((step, i) => (
+                  <li
+                    key={i}
+                    className="flex gap-3 text-sm leading-relaxed text-foreground/90"
+                  >
+                    <span className="shrink-0 w-6 h-6 rounded-full bg-primary/10 text-primary text-xs font-semibold inline-flex items-center justify-center tabular-nums">
+                      {i + 1}
+                    </span>
+                    <span className="pt-0.5 whitespace-pre-wrap">{step}</span>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <div className="rounded-lg border border-dashed border-border bg-muted/30 p-4 text-sm text-muted-foreground flex items-start gap-2">
+                <Info className="w-4 h-4 shrink-0 text-amber-500 mt-0.5" />
+                <span>
+                  No cooking steps were captured during import. An operator will need to
+                  add them before this recipe can be served.
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Meta + Media row */}
+          <div className="grid grid-cols-[1.4fr_1fr] gap-5">
+            <div className="space-y-4">
+              <div
+                id="section-meta"
+                className="rounded-xl border border-border bg-card divide-y divide-border"
+              >
                 <div className="flex items-center justify-between p-3 text-sm">
                   <span className="text-muted-foreground flex items-center gap-2">
-                    <Clock className="w-4 h-4" /> Est. time
+                    <Clock className="w-4 h-4" /> Estimated time
                   </span>
-                  <span className="font-medium tabular-nums">
-                    {detail.estimatedTimeMin ? `${detail.estimatedTimeMin}m` : "—"}
+                  <span
+                    className={cn(
+                      "font-medium tabular-nums",
+                      !detail.estimatedTimeMin && "text-amber-600",
+                    )}
+                  >
+                    {detail.estimatedTimeMin ? `${detail.estimatedTimeMin}m` : "missing"}
                   </span>
                 </div>
                 <div className="flex items-center justify-between p-3 text-sm">
-                  <span className="text-muted-foreground flex items-center gap-2">
-                    <ListFilter className="w-4 h-4" /> Mapping rate
-                  </span>
+                  <span className="text-muted-foreground">Mapping rate</span>
                   <span className="font-medium tabular-nums">
                     {detail.mappingRate != null
                       ? `${Math.round(detail.mappingRate * 100)}%`
@@ -353,21 +654,73 @@ function DetailPane({
                   </span>
                 </div>
                 <div className="flex items-center justify-between p-3 text-sm">
-                  <span className="text-muted-foreground">Imported on</span>
+                  <span className="text-muted-foreground">Cuisine</span>
                   <span className="font-medium">
-                    {detail.createdAt
-                      ? new Date(detail.createdAt).toLocaleDateString()
-                      : "—"}
+                    {detail.cuisineTags.join(", ") || "—"}
                   </span>
                 </div>
+                <div className="flex items-center justify-between p-3 text-sm">
+                  <span className="text-muted-foreground">Imported</span>
+                  <span className="font-medium">
+                    {new Date(detail.createdAt).toLocaleDateString()}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div id="section-media" className="space-y-4">
+              <div className="rounded-xl overflow-hidden border border-border bg-card aspect-[4/3] flex items-center justify-center">
+                {detail.imageUrl ? (
+                  <img
+                    src={detail.imageUrl}
+                    alt={detail.title}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="flex flex-col items-center gap-2 text-amber-600">
+                    <ImageIcon className="w-10 h-10" />
+                    <span className="text-xs font-medium">No image attached</span>
+                  </div>
+                )}
+              </div>
+              <div className="rounded-xl border border-border bg-muted/30 p-3 text-xs text-muted-foreground flex items-start gap-2">
+                <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                <span>
+                  Imported from{" "}
+                  <span className="text-foreground font-medium">{detail.source}</span> ·{" "}
+                  {new Date(detail.createdAt).toLocaleString()}
+                </span>
               </div>
             </div>
           </div>
         </div>
       </ScrollArea>
 
-      <div className="absolute bottom-0 left-0 right-0 bg-card border-t border-border p-4 px-8 shadow-[0_-4px_20px_rgba(0,0,0,0.05)] z-20">
-        <div className="max-w-3xl mx-auto flex items-end gap-4">
+      {/* Action bar */}
+      <div className="absolute bottom-0 left-0 right-0 bg-card border-t border-border z-20 shadow-[0_-4px_20px_rgba(0,0,0,0.05)]">
+        <div
+          className={cn(
+            "px-8 py-2 text-xs flex items-center gap-2 border-b border-border/60",
+            allClear ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-900",
+          )}
+        >
+          <Sparkles className="w-3.5 h-3.5 shrink-0" />
+          <span>
+            <span className="font-semibold">What happens if you promote now?</span>{" "}
+            Promoting will create 1 recipe with{" "}
+            <span className="font-semibold tabular-nums">
+              {detail.mappedIngredientCount}/{totalIngredients}
+            </span>{" "}
+            ingredients mapped.{" "}
+            {detail.unmappedIngredientNames.length > 0
+              ? `${detail.unmappedIngredientNames.length} substitution${
+                  detail.unmappedIngredientNames.length === 1 ? "" : "s"
+                } needed at cook time.`
+              : "No substitutions required."}
+          </span>
+        </div>
+
+        <div className="px-8 py-3 flex items-end gap-3">
           <div className="flex-1">
             <input
               type="text"
@@ -378,17 +731,17 @@ function DetailPane({
                   ? "This recipe is already finalized."
                   : "Add an optional decision note…"
               }
-              className="w-full px-4 py-2.5 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring/40 transition-all placeholder:text-muted-foreground/70"
               disabled={isFinal}
               data-testid="input-decision-note"
+              className="w-full px-4 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring/30 transition-all placeholder:text-muted-foreground/70"
             />
           </div>
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-2 shrink-0">
             <button
               disabled={rejectDisabledFinal}
               onClick={onReject}
               data-testid="button-reject"
-              className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-md text-sm font-medium border border-destructive/40 text-destructive hover:bg-destructive/10 bg-card transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium border border-input bg-background text-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <XCircle className="w-4 h-4" /> Reject <Kbd>R</Kbd>
             </button>
@@ -396,13 +749,27 @@ function DetailPane({
               disabled={promoteDisabledFinal}
               onClick={onPromote}
               data-testid="button-promote"
-              className="inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-md text-sm font-medium bg-primary text-primary-foreground hover:opacity-90 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+              className={cn(
+                "inline-flex items-center justify-center gap-2 px-5 py-2 rounded-md text-sm font-semibold shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
+                allClear
+                  ? "bg-primary text-primary-foreground hover:opacity-90"
+                  : "bg-amber-500 text-white hover:bg-amber-600",
+              )}
             >
-              <CheckCircle className="w-4 h-4" /> Promote <Kbd>P</Kbd>
+              {allClear ? (
+                <>
+                  <CheckCircle2 className="w-4 h-4" /> Promote <Kbd>P</Kbd>
+                </>
+              ) : (
+                <>
+                  <AlertTriangle className="w-4 h-4" /> Promote ({readiness.unresolved}{" "}
+                  issue{readiness.unresolved === 1 ? "" : "s"}) <Kbd>P</Kbd>
+                </>
+              )}
             </button>
           </div>
         </div>
-        <div className="max-w-3xl mx-auto mt-3 flex justify-between items-center text-[10px] text-muted-foreground">
+        <div className="px-8 pb-2 flex justify-between items-center text-[10px] text-muted-foreground">
           <div className="flex items-center gap-4">
             <span className="flex items-center gap-1.5">
               <Keyboard className="w-3 h-3" /> Shortcuts
@@ -449,8 +816,6 @@ export function RecipesStagingPage() {
   const facets = list.data?.facets;
   const totalPages = Math.ceil((list.data?.total ?? 0) / 50);
 
-  // Auto-select the first row whenever the list changes and nothing is selected
-  // (or the selected row dropped out of the current filter).
   useEffect(() => {
     if (rows.length === 0) {
       if (openId !== null) setOpenId(null);
@@ -461,12 +826,10 @@ export function RecipesStagingPage() {
     }
   }, [rows, openId]);
 
-  // Reset note whenever the selected row changes.
   useEffect(() => {
     setNote("");
   }, [openId]);
 
-  // Scroll the selected row into view inside the queue list.
   useEffect(() => {
     if (!openId) return;
     const el = rowRefs.current.get(openId);
@@ -477,8 +840,6 @@ export function RecipesStagingPage() {
 
   const invalidateLists = () => {
     qc.invalidateQueries({ queryKey: getListOpsStagingQueryKey().slice(0, 1) });
-    // Also refresh any open detail panes — remap/reextract may have changed
-    // mapping rate, status, and unmapped lists for the currently-selected row.
     qc.invalidateQueries({
       predicate: (query) => {
         const k = query.queryKey?.[0];
@@ -590,8 +951,6 @@ export function RecipesStagingPage() {
     }
   };
 
-  // Keyboard shortcuts (J/K navigate, P promote, R reject). Skip when typing in
-  // an input so that search and the decision note are not hijacked.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
@@ -627,7 +986,7 @@ export function RecipesStagingPage() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, openId, detail.data, note]);
+  }, [rows, openId, detail.data, note, promote.isPending, reject.isPending]);
 
   const statusCounts = useMemo(() => {
     const map: Record<string, number> = {};
@@ -679,8 +1038,8 @@ export function RecipesStagingPage() {
 
       <div className="flex flex-1 overflow-hidden">
         {/* Queue */}
-        <div className="w-[420px] flex flex-col border-r border-border bg-card z-10 shrink-0">
-          <div className="p-3 border-b border-border space-y-3 bg-card shrink-0">
+        <div className="w-[400px] flex flex-col border-r border-border bg-card z-10 shrink-0">
+          <div className="p-3 border-b border-border space-y-2 bg-card shrink-0">
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <input
@@ -706,13 +1065,19 @@ export function RecipesStagingPage() {
                 title={FILTER_TITLES[status]}
                 className="flex-1 px-2 py-1.5 rounded border border-input bg-background text-xs focus:outline-none text-foreground"
               >
-                {["pending", "imported", "ready", "needs_review", "promoted", "rejected", "all"].map(
-                  (s) => (
-                    <option key={s} value={s}>
-                      {FILTER_LABELS[s]} ({statusCounts[s] ?? 0})
-                    </option>
-                  ),
-                )}
+                {[
+                  "pending",
+                  "imported",
+                  "ready",
+                  "needs_review",
+                  "promoted",
+                  "rejected",
+                  "all",
+                ].map((s) => (
+                  <option key={s} value={s}>
+                    {FILTER_LABELS[s]} ({statusCounts[s] ?? 0})
+                  </option>
+                ))}
               </select>
               <select
                 value={source}
@@ -731,19 +1096,22 @@ export function RecipesStagingPage() {
                 ))}
               </select>
             </div>
+            <div className="flex items-center justify-between text-[10px] uppercase tracking-wider text-muted-foreground pt-1">
+              <span>{rows.length} in view</span>
+              <span className="flex items-center gap-1">
+                <ListChecks className="w-3 h-3" /> readiness shown as ●●●●
+              </span>
+            </div>
           </div>
 
           <ScrollArea className="flex-1">
-            <div className="divide-y divide-border/50">
+            <div className="divide-y divide-border/60">
               {list.isLoading ? (
                 Array.from({ length: 8 }).map((_, i) => (
-                  <div key={i} className="flex">
-                    <div className="w-1.5 bg-muted shrink-0" />
-                    <div className="flex-1 p-3 space-y-2">
-                      <div className="h-3 bg-muted rounded w-1/3 animate-pulse" />
-                      <div className="h-4 bg-muted rounded w-3/4 animate-pulse" />
-                      <div className="h-3 bg-muted rounded w-1/2 animate-pulse" />
-                    </div>
+                  <div key={i} className="p-3 space-y-2">
+                    <div className="h-3 bg-muted rounded w-1/3 animate-pulse" />
+                    <div className="h-4 bg-muted rounded w-3/4 animate-pulse" />
+                    <div className="h-3 bg-muted rounded w-1/2 animate-pulse" />
                   </div>
                 ))
               ) : rows.length === 0 ? (
@@ -799,7 +1167,7 @@ export function RecipesStagingPage() {
           {!openId ? (
             <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground space-y-4">
               <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center">
-                <CheckCircle className="w-8 h-8 text-muted-foreground/50" />
+                <CheckCircle2 className="w-8 h-8 text-muted-foreground/50" />
               </div>
               <div className="text-center">
                 <p className="font-medium text-foreground">
@@ -820,8 +1188,8 @@ export function RecipesStagingPage() {
               onNoteChange={setNote}
               onPromote={doPromote}
               onReject={doReject}
-              promoteDisabled={promote.isPending}
-              rejectDisabled={reject.isPending}
+              promoteDisabled={!canAct()}
+              rejectDisabled={!canAct()}
             />
           )}
         </div>
@@ -829,3 +1197,5 @@ export function RecipesStagingPage() {
     </div>
   );
 }
+
+export default RecipesStagingPage;
