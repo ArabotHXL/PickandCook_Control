@@ -278,6 +278,7 @@ function QueueRow({
   registerRef: (el: HTMLDivElement | null) => void;
 }) {
   const checks = getRowChecks(r);
+  const ready = readinessFromChecks(checks);
   return (
     <div
       ref={registerRef}
@@ -285,13 +286,13 @@ function QueueRow({
       data-testid={`queue-row-${r.id}`}
       title={`Imported from ${r.source} · ${new Date(r.createdAt).toLocaleString()}`}
       className={cn(
-        "group cursor-pointer transition-colors border-l-[3px] py-2 px-3",
+        "group cursor-pointer transition-colors border-l-[3px] p-3",
         selected
           ? "bg-primary/5 border-l-primary"
           : "hover:bg-muted/50 border-l-transparent",
       )}
     >
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center justify-between gap-2 mb-1">
         <span className="text-[10px] uppercase font-semibold tracking-wider text-muted-foreground">
           {r.source}
         </span>
@@ -299,13 +300,13 @@ function QueueRow({
       </div>
       <h3
         className={cn(
-          "text-sm font-medium leading-tight truncate mt-0.5",
+          "text-sm font-medium leading-tight truncate",
           selected ? "text-primary" : "text-foreground",
         )}
       >
         {r.title}
       </h3>
-      <div className="flex items-center justify-between gap-2 mt-1">
+      <div className="flex items-center justify-between gap-2 mt-2">
         <span
           className={cn(
             "px-1.5 py-0.5 rounded text-[10px] font-medium border",
@@ -314,12 +315,17 @@ function QueueRow({
         >
           {r.status}
         </span>
-        {r.unmappedIngredientNames.length > 0 && (
-          <span className="flex items-center gap-1 text-xs text-amber-600 font-medium">
-            <AlertTriangle className="w-3 h-3" />
-            {r.unmappedIngredientNames.length}
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span className="tabular-nums">
+            {ready.passCount}/{ready.total} checks
           </span>
-        )}
+          {r.unmappedIngredientNames.length > 0 && (
+            <span className="flex items-center gap-1 text-amber-600 font-medium">
+              <AlertTriangle className="w-3 h-3" />
+              {r.unmappedIngredientNames.length}
+            </span>
+          )}
+        </div>
       </div>
     </div>
   );
