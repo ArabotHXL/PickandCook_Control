@@ -791,12 +791,51 @@ function DetailPane({
   );
 }
 
+const QUEUE_WIDTH_KEY = "recipes-staging:queue-width";
+const QUEUE_WIDTH_MIN = 280;
+const QUEUE_WIDTH_MAX = 720;
+const QUEUE_WIDTH_DEFAULT = 440;
+
 export function RecipesStagingPage() {
   const [status, setStatus] = useState<string>("pending");
   const [source, setSource] = useState("");
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [queueWidth, setQueueWidth] = useState<number>(() => {
+    if (typeof window === "undefined") return QUEUE_WIDTH_DEFAULT;
+    const stored = Number(window.localStorage.getItem(QUEUE_WIDTH_KEY));
+    if (!Number.isFinite(stored) || stored <= 0) return QUEUE_WIDTH_DEFAULT;
+    return Math.min(QUEUE_WIDTH_MAX, Math.max(QUEUE_WIDTH_MIN, stored));
+  });
+  const [isResizing, setIsResizing] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(QUEUE_WIDTH_KEY, String(queueWidth));
+  }, [queueWidth]);
+  useEffect(() => {
+    if (!isResizing) return;
+    const onMove = (e: MouseEvent) => {
+      setQueueWidth((prev) => {
+        const next = Math.min(
+          QUEUE_WIDTH_MAX,
+          Math.max(QUEUE_WIDTH_MIN, e.clientX),
+        );
+        return next === prev ? prev : next;
+      });
+    };
+    const onUp = () => setIsResizing(false);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [isResizing]);
   const [note, setNote] = useState("");
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -1038,7 +1077,10 @@ export function RecipesStagingPage() {
 
       <div className="flex flex-1 overflow-hidden">
         {/* Queue */}
-        <div className="w-[440px] flex flex-col border-r border-border bg-card z-10 shrink-0">
+        <div
+          style={{ width: queueWidth }}
+          className="flex flex-col border-r border-border bg-card z-10 shrink-0"
+        >
           <div className="p-3 border-b border-border space-y-2 bg-card shrink-0">
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -1162,8 +1204,33 @@ export function RecipesStagingPage() {
           )}
         </div>
 
+        {/* Resize handle */}
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize queue panel"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            setIsResizing(true);
+          }}
+          onDoubleClick={() => setQueueWidth(QUEUE_WIDTH_DEFAULT)}
+          title="Drag to resize · double-click to reset"
+          data-testid="queue-resize-handle"
+          className={cn(
+            "relative w-1 shrink-0 cursor-col-resize z-20 group",
+            isResizing ? "bg-primary/40" : "bg-transparent hover:bg-primary/20",
+          )}
+        >
+          <span
+            className={cn(
+              "absolute inset-y-0 -left-1 -right-1",
+              isResizing && "bg-primary/10",
+            )}
+          />
+        </div>
+
         {/* Detail */}
-        <div className="flex-1 flex flex-col bg-background relative overflow-hidden">
+        <div className="flex-1 flex flex-col bg-background relative overflow-hidden min-w-0">
           {!openId ? (
             <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground space-y-4">
               <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center">
