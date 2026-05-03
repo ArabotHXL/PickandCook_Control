@@ -62,6 +62,14 @@ router.post("/storage/uploads/request-url", requireAdminWrite, async (req: Reque
 });
 
 /**
+ * Pattern that public object reads must match: uploads/<uuid>.
+ * This constrains the unauthenticated endpoint to the exact namespace created
+ * by getObjectEntityUploadURL() and prevents access to any other objects that
+ * may reside under PRIVATE_OBJECT_DIR (e.g. backups, receipts, exports).
+ */
+const UPLOAD_PATH_PATTERN = /^uploads\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
  * GET /storage/objects/*  — serve uploaded object entities.
  *
  * Public reads are intentional: <img> tags in the dashboard cannot send our
@@ -69,11 +77,21 @@ router.post("/storage/uploads/request-url", requireAdminWrite, async (req: Reque
  * obscurity is acceptable here as the bucket only stores ops-uploaded recipe
  * imagery and the private bucket is not enumerable). Anything that should be
  * truly access-controlled must not flow through this endpoint.
+ *
+ * Reads are constrained to the uploads/<uuid> namespace only. Any path that
+ * does not match this format is rejected with 404 before storage is touched,
+ * preventing access to other objects that may reside under PRIVATE_OBJECT_DIR.
  */
 router.get("/storage/objects/*path", async (req: Request, res: Response) => {
   try {
     const raw = req.params.path;
     const wildcardPath = Array.isArray(raw) ? raw.join("/") : raw;
+
+    if (!UPLOAD_PATH_PATTERN.test(wildcardPath)) {
+      res.status(404).json({ error: "Object not found" });
+      return;
+    }
+
     const objectPath = `/objects/${wildcardPath}`;
     const objectFile = await objectStorageService.getObjectEntityFile(objectPath);
     const response = await objectStorageService.downloadObject(objectFile);
