@@ -118,6 +118,12 @@ function signTotpChallenge(userId: string): string {
   );
 }
 
+// A pre-computed bcrypt hash of a dummy value used to perform a constant-time
+// comparison when no real user record is found. This prevents timing-based
+// email enumeration: the bcrypt work factor is always paid regardless of
+// whether the submitted email matches any account.
+const DUMMY_HASH = await bcrypt.hash("dummy-constant-time-guard", 10);
+
 export async function opsLogin(req: Request, res: Response): Promise<void> {
   const { email, password } = req.body ?? {};
   if (!email || !password) {
@@ -125,6 +131,10 @@ export async function opsLogin(req: Request, res: Response): Promise<void> {
     return;
   }
 
+  // Look up by email only — do NOT filter by role here. Filtering by role
+  // would cause the query to return no rows for non-admin emails, making the
+  // subsequent code path shorter and returning a distinguishable error, which
+  // lets attackers enumerate which emails belong to admin accounts.
   const user = await queryOne<{
     id: string;
     email: string;
@@ -133,17 +143,20 @@ export async function opsLogin(req: Request, res: Response): Promise<void> {
     role: string;
   }>(
     `SELECT id, email, username, password, role FROM users
-       WHERE email = $1 AND role = ANY($2::text[]) LIMIT 1`,
-    [email, ADMIN_ROLES_READ]
+       WHERE email = $1 LIMIT 1`,
+    [email]
   );
 
-  if (!user) {
-    res.status(401).json({ error: "Invalid credentials or not an admin" });
-    return;
-  }
+  // Always run bcrypt.compare so the response time is consistent whether the
+  // email exists, doesn't exist, or belongs to a non-admin. This eliminates
+  // the timing side-channel that would otherwise reveal account existence.
+  const hashToCompare = user?.password ?? DUMMY_HASH;
+  const valid = await bcrypt.compare(password, hashToCompare);
 
-  const valid = user.password ? await bcrypt.compare(password, user.password) : false;
-  if (!valid) {
+  // Use a single generic error for all failure modes (unknown email,
+  // non-admin role, wrong password). Distinct messages would let an attacker
+  // learn which emails are registered as admin accounts.
+  if (!valid || !user || !(ADMIN_ROLES_READ as readonly string[]).includes(user.role)) {
     res.status(401).json({ error: "Invalid credentials" });
     return;
   }
