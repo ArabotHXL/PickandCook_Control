@@ -1038,7 +1038,7 @@ export function RecipesStagingPage() {
 
       <div className="flex flex-1 overflow-hidden">
         {/* Queue */}
-        <div className="w-[440px] flex flex-col border-r border-border bg-card z-10 shrink-0">
+        <div className="w-[320px] flex flex-col border-r border-border bg-card z-10 shrink-0">
           <div className="p-3 border-b border-border space-y-2 bg-card shrink-0">
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
