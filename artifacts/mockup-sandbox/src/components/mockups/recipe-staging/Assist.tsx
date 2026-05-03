@@ -69,12 +69,30 @@ function getChecks(row: StagingRow): CheckResult[] {
     anchor: "section-unmapped",
   });
   checks.push({
+    key: "instructions",
+    label: row.instructionsSummary
+      ? "Cooking steps captured"
+      : "No cooking steps — operator must add",
+    state: row.instructionsSummary ? "pass" : "fail",
+    anchor: "section-instructions",
+  });
+  checks.push({
     key: "time",
     label: row.estimatedTimeMin ? "Cooking time set" : "Cooking time missing",
     state: row.estimatedTimeMin ? "pass" : "warn",
     anchor: "section-meta",
   });
   return checks;
+}
+
+function parseSteps(summary: string): string[] {
+  // Mock instructionsSummary uses "; " between steps. Split, trim, drop empty,
+  // and capitalise the first letter of each step for clean numbered display.
+  return summary
+    .split(/;|\.\s+(?=[A-Z])/)
+    .map((s) => s.replace(/^\s+|[\s.;]+$/g, ""))
+    .filter(Boolean)
+    .map((s) => s.charAt(0).toUpperCase() + s.slice(1));
 }
 
 function readinessFromChecks(checks: CheckResult[]): {
@@ -630,26 +648,54 @@ export function Assist() {
                     )}
                   </div>
 
-                  {/* Two column: Instructions + Media/Meta */}
+                  {/* Cooking steps — full-width hero so the operator can actually read the recipe */}
+                  {(() => {
+                    const steps = openRow.instructionsSummary ? parseSteps(openRow.instructionsSummary) : [];
+                    return (
+                      <div
+                        id="section-instructions"
+                        className="rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-5 space-y-4"
+                      >
+                        <div className="flex items-center justify-between gap-3 flex-wrap">
+                          <h3 className="text-sm font-semibold flex items-center gap-2 text-[hsl(var(--foreground))]">
+                            <BookOpen className="w-4 h-4 text-[hsl(var(--muted-foreground))]" />
+                            Cooking steps
+                          </h3>
+                          {steps.length > 0 && (
+                            <span className="text-[11px] uppercase tracking-wider text-[hsl(var(--muted-foreground))]">
+                              {steps.length} step{steps.length === 1 ? "" : "s"} · imported summary
+                            </span>
+                          )}
+                        </div>
+                        {steps.length > 0 ? (
+                          <ol className="space-y-3">
+                            {steps.map((step, i) => (
+                              <li
+                                key={i}
+                                className="flex gap-3 text-sm leading-relaxed text-[hsl(var(--foreground))]/90"
+                              >
+                                <span className="shrink-0 w-6 h-6 rounded-full bg-[hsl(var(--primary))]/10 text-[hsl(var(--primary))] text-xs font-semibold inline-flex items-center justify-center tabular-nums">
+                                  {i + 1}
+                                </span>
+                                <span className="pt-0.5">{step}</span>
+                              </li>
+                            ))}
+                          </ol>
+                        ) : (
+                          <div className="rounded-lg border border-dashed border-[hsl(var(--border))] bg-[hsl(var(--muted))]/30 p-4 text-sm text-[hsl(var(--muted-foreground))] flex items-start gap-2">
+                            <Info className="w-4 h-4 shrink-0 text-amber-500 mt-0.5" />
+                            <span>
+                              No cooking steps were captured during import. An operator will need to add them before this recipe can be served.
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+
+                  {/* Meta + Media row */}
                   <div className="grid grid-cols-[1.4fr_1fr] gap-5">
                     <div className="space-y-4">
-                      {openRow.instructionsSummary && (
-                        <div className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-4">
-                          <h3 className="text-sm font-semibold flex items-center gap-2 mb-2">
-                            <BookOpen className="w-4 h-4 text-[hsl(var(--muted-foreground))]" />{" "}
-                            Instructions summary
-                          </h3>
-                          <p className="text-sm text-[hsl(var(--foreground))]/85 leading-relaxed">
-                            {openRow.instructionsSummary}
-                          </p>
-                        </div>
-                      )}
-                      {!openRow.instructionsSummary && (
-                        <div className="rounded-xl border border-dashed border-[hsl(var(--border))] bg-[hsl(var(--muted))]/30 p-4 text-sm text-[hsl(var(--muted-foreground))] flex items-center gap-2">
-                          <Info className="w-4 h-4" /> No instructions summary captured during import.
-                        </div>
-                      )}
-
                       <div
                         id="section-meta"
                         className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] divide-y divide-[hsl(var(--border))]"
