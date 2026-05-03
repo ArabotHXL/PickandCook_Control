@@ -36,7 +36,7 @@ export const opsPool = new Pool({
   user: parsed.user,
   password: parsed.password,
   database: parsed.database,
-  ssl: parsed.ssl ? { rejectUnauthorized: false } : false,
+  ssl: parsed.ssl ? { rejectUnauthorized: true } : false,
   max: 5,
   connectionTimeoutMillis: 15000,
   idleTimeoutMillis: 120000,
