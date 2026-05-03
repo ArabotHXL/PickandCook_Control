@@ -16,6 +16,7 @@ import {
   OpsStagingReextractBodySource,
 } from "@workspace/api-client-react";
 import { uploadImageFile, resolveImageSrc } from "@/lib/upload";
+import { CropRotateDialog } from "@/components/CropRotateDialog";
 import { PageHeader } from "@/components/ui/page-header";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
@@ -358,17 +359,23 @@ function MediaEditor({
   const [urlDraft, setUrlDraft] = useState("");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [editorSource, setEditorSource] = useState<
+    | { kind: "file"; file: File }
+    | { kind: "url"; url: string }
+    | null
+  >(null);
   const { toast } = useToast();
 
   // Reset local UI when switching to a different staging row.
   useEffect(() => {
     setMode("view");
     setUrlDraft("");
+    setEditorSource(null);
   }, [detail.id]);
 
   const handlePickFile = () => fileInputRef.current?.click();
 
-  const handleFile = async (file: File | null) => {
+  const handleFile = (file: File | null) => {
     if (!file) return;
     if (!file.type.startsWith("image/")) {
       toast({
@@ -386,21 +393,8 @@ function MediaEditor({
       });
       return;
     }
-    const targetId = targetIdRef.current;
-    try {
-      setUploading(true);
-      const { objectPath } = await uploadImageFile(file);
-      onSaveImage(targetId, objectPath);
-    } catch (e) {
-      toast({
-        title: "Upload failed",
-        description: e instanceof Error ? e.message : String(e),
-        variant: "destructive",
-      });
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
+    setEditorSource({ kind: "file", file });
+    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   const submitUrl = () => {
@@ -415,9 +409,27 @@ function MediaEditor({
       });
       return;
     }
-    onSaveImage(targetIdRef.current, v);
-    setMode("view");
-    setUrlDraft("");
+    setEditorSource({ kind: "url", url: v });
+  };
+
+  const handleEditorConfirm = async (file: File) => {
+    const targetId = targetIdRef.current;
+    try {
+      setUploading(true);
+      const { objectPath } = await uploadImageFile(file);
+      onSaveImage(targetId, objectPath);
+      setEditorSource(null);
+      setMode("view");
+      setUrlDraft("");
+    } catch (e) {
+      toast({
+        title: "Upload failed",
+        description: e instanceof Error ? e.message : String(e),
+        variant: "destructive",
+      });
+    } finally {
+      setUploading(false);
+    }
   };
 
   const busy = uploading || saving;
@@ -552,6 +564,19 @@ function MediaEditor({
           Image cannot be edited once the recipe is {detail.status}.
         </p>
       )}
+      <CropRotateDialog
+        open={editorSource !== null}
+        source={editorSource}
+        onCancel={() => setEditorSource(null)}
+        onConfirm={handleEditorConfirm}
+        onSaveUrlAsIs={(url) => {
+          onSaveImage(targetIdRef.current, url);
+          setEditorSource(null);
+          setMode("view");
+          setUrlDraft("");
+        }}
+        saving={uploading || saving}
+      />
     </div>
   );
 }
