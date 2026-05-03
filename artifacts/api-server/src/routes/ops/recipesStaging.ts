@@ -206,7 +206,7 @@ export async function createStagingRecipe(req: Request, res: Response): Promise<
 
   await writeAuditLog({
     adminUserId: admin.userId,
-    actionType: "staging_recipe_create_manual",
+    actionType: "manual_recipe_created",
     targetType: "imported_recipe_staging",
     targetId: newId,
     newValue: { title, source: "manual" },

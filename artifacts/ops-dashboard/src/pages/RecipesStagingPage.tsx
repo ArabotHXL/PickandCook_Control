@@ -1110,6 +1110,7 @@ export function RecipesStagingPage() {
   const [note, setNote] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [createTitle, setCreateTitle] = useState("");
+  const [createError, setCreateError] = useState<string | null>(null);
   const { toast } = useToast();
   const { user: currentAdmin } = useAuth();
   const canWrite = currentAdmin?.role === "admin";
@@ -1244,6 +1245,7 @@ export function RecipesStagingPage() {
         toast({ title: "已创建草稿", description: created.title });
         setCreateOpen(false);
         setCreateTitle("");
+        setCreateError(null);
         // Normalize filters so the newly created (manual / needs_review) row
         // is guaranteed to appear in the queue. Otherwise the auto-select
         // effect would reset openId back to rows[0] when the active filters
@@ -1263,17 +1265,38 @@ export function RecipesStagingPage() {
         await qc.refetchQueries({ queryKey: getListOpsStagingQueryKey().slice(0, 1) });
         setOpenId(created.id);
       },
-      onError: (e: Error) =>
-        toast({ title: "创建失败", description: e.message, variant: "destructive" }),
+      onError: (e: Error) => {
+        const status =
+          (e as Error & { status?: number }).status ?? 0;
+        let msg: string;
+        if (status === 403) {
+          msg = "权限不足:仅 admin 角色可以创建菜谱草稿";
+        } else if (status === 400) {
+          msg = "标题无效:请检查标题是否为空或超过 200 个字符";
+        } else if (status === 401) {
+          msg = "登录已过期,请重新登录";
+        } else if (status >= 500) {
+          msg = "服务器错误,请稍后再试";
+        } else {
+          msg = "创建失败,请重试";
+        }
+        setCreateError(msg);
+        toast({ title: "创建失败", description: msg, variant: "destructive" });
+      },
     },
   });
 
   const submitCreate = () => {
     const t = createTitle.trim();
     if (!t) {
-      toast({ title: "请输入菜谱标题", variant: "destructive" });
+      setCreateError("请输入菜谱标题");
       return;
     }
+    if (t.length > 200) {
+      setCreateError("标题不能超过 200 个字符");
+      return;
+    }
+    setCreateError(null);
     createStaging.mutate({ data: { title: t } });
   };
 
@@ -1381,6 +1404,7 @@ export function RecipesStagingPage() {
               <button
                 onClick={() => {
                   setCreateTitle("");
+                  setCreateError(null);
                   setCreateOpen(true);
                 }}
                 data-testid="button-create-staging"
@@ -1633,7 +1657,10 @@ export function RecipesStagingPage() {
               value={createTitle}
               maxLength={200}
               autoFocus
-              onChange={(e) => setCreateTitle(e.target.value)}
+              onChange={(e) => {
+                setCreateTitle(e.target.value);
+                if (createError) setCreateError(null);
+              }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !createStaging.isPending) {
                   e.preventDefault();
@@ -1647,6 +1674,15 @@ export function RecipesStagingPage() {
             <p className="text-[11px] text-muted-foreground">
               最多 200 个字符 · 来源会标记为 manual
             </p>
+            {createError && (
+              <p
+                role="alert"
+                data-testid="text-create-staging-error"
+                className="text-xs text-destructive"
+              >
+                {createError}
+              </p>
+            )}
           </div>
           <DialogFooter>
             <button
