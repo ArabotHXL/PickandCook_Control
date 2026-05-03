@@ -4,13 +4,27 @@ export interface UploadedObject {
   objectPath: string;
 }
 
+const ALLOWED_IMAGE_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+  "image/avif",
+]);
+
 export async function uploadImageFile(file: File): Promise<UploadedObject> {
+  if (!ALLOWED_IMAGE_TYPES.has(file.type)) {
+    throw new Error(
+      `File type "${file.type}" is not allowed. Only image files (JPEG, PNG, GIF, WebP, AVIF) may be uploaded.`
+    );
+  }
+
   const reqRes = await apiFetch("/api/storage/uploads/request-url", {
     method: "POST",
     body: JSON.stringify({
       name: file.name,
       size: file.size,
-      contentType: file.type || "application/octet-stream",
+      contentType: file.type,
     }),
   });
   if (!reqRes.ok) {
@@ -22,7 +36,7 @@ export async function uploadImageFile(file: File): Promise<UploadedObject> {
   };
   const putRes = await fetch(uploadURL, {
     method: "PUT",
-    headers: { "Content-Type": file.type || "application/octet-stream" },
+    headers: { "Content-Type": file.type },
     body: file,
   });
   if (!putRes.ok) {

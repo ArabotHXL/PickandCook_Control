@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { Readable } from "stream";
-import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
+import { ObjectStorageService, ObjectNotFoundError, ALLOWED_IMAGE_CONTENT_TYPES } from "../lib/objectStorage";
 import { requireAdmin } from "./ops/auth.js";
 
 const router: IRouter = Router();
@@ -13,6 +13,10 @@ const objectStorageService = new ObjectStorageService();
  *
  * Admin-only — issuing signed PUT URLs lets the holder write arbitrary content
  * into the private object bucket.
+ *
+ * contentType must be an allowed image MIME type. This prevents issuing signed
+ * URLs for non-image content that could later be served as executable HTML on
+ * the app origin.
  */
 router.post("/storage/uploads/request-url", requireAdmin, async (req: Request, res: Response) => {
   const { name, size, contentType } = (req.body ?? {}) as {
@@ -22,6 +26,12 @@ router.post("/storage/uploads/request-url", requireAdmin, async (req: Request, r
   };
   if (!name || typeof name !== "string") {
     res.status(400).json({ error: "name is required" });
+    return;
+  }
+  if (!contentType || !ALLOWED_IMAGE_CONTENT_TYPES.has(contentType)) {
+    res.status(400).json({
+      error: `contentType must be one of: ${[...ALLOWED_IMAGE_CONTENT_TYPES].join(", ")}`,
+    });
     return;
   }
   try {

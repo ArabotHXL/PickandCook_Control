@@ -9,6 +9,19 @@ import {
   setObjectAclPolicy,
 } from "./objectAcl";
 
+/**
+ * Allowlist of MIME types permitted for upload and safe for inline serving.
+ * SVG is intentionally excluded — it can embed JavaScript and execute in-origin.
+ * HTML, XML, and all other active content types are excluded.
+ */
+export const ALLOWED_IMAGE_CONTENT_TYPES: ReadonlySet<string> = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+  "image/avif",
+]);
+
 const REPLIT_SIDECAR_ENDPOINT = "http://127.0.0.1:1106";
 
 export const objectStorageClient = new Storage({
@@ -95,9 +108,21 @@ export class ObjectStorageService {
     const nodeStream = file.createReadStream();
     const webStream = Readable.toWeb(nodeStream) as ReadableStream;
 
+    // Only serve the stored content type if it is on the image allowlist.
+    // Anything else (HTML, SVG, XML, unknown) is downgraded to an inert binary
+    // type so the browser cannot execute it as active web content on this origin.
+    const storedType = (metadata.contentType as string) || "";
+    const safeContentType = ALLOWED_IMAGE_CONTENT_TYPES.has(storedType)
+      ? storedType
+      : "application/octet-stream";
+
     const headers: Record<string, string> = {
-      "Content-Type": (metadata.contentType as string) || "application/octet-stream",
+      "Content-Type": safeContentType,
       "Cache-Control": `${isPublic ? "public" : "private"}, max-age=${cacheTtlSec}`,
+      // Prevent MIME-type sniffing so browsers honour the Content-Type above.
+      "X-Content-Type-Options": "nosniff",
+      // Restrict any active content that might be served from this path.
+      "Content-Security-Policy": "default-src 'none'",
     };
     if (metadata.size) {
       headers["Content-Length"] = String(metadata.size);
