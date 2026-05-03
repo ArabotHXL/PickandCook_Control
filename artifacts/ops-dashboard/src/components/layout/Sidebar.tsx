@@ -80,7 +80,7 @@ export function Sidebar({ user, onLogout }: SidebarProps) {
   const [location] = useLocation();
 
   return (
-    <aside className="w-64 min-h-screen bg-sidebar text-sidebar-foreground flex flex-col border-r border-sidebar-border shrink-0">
+    <aside className="w-64 h-screen bg-sidebar text-sidebar-foreground flex flex-col border-r border-sidebar-border shrink-0">
       <div className="px-6 py-5 border-b border-sidebar-border">
         <div className="flex items-center gap-2">
           <div className="w-7 h-7 rounded-md bg-sidebar-primary flex items-center justify-center">

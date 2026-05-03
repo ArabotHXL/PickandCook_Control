@@ -9,9 +9,9 @@ interface LayoutProps {
 
 export function Layout({ user, onLogout, children }: LayoutProps) {
   return (
-    <div className="flex min-h-screen bg-background">
+    <div className="flex h-screen overflow-hidden bg-background">
       <Sidebar user={user} onLogout={onLogout} />
-      <main className="flex-1 overflow-auto">
+      <main className="flex-1 overflow-y-auto">
         {children}
       </main>
     </div>
