@@ -541,6 +541,57 @@ export const GetOpsRecipeReportsResponse = zod.object({
 });
 
 /**
+ * Inserts a blank `imported_recipes_staging` row with `source='manual'`
+and `status='needs_review'`, so an operator can fill it in via the
+existing detail editor and then promote it through the same flow as
+an imported recipe. Write-admin only.
+
+ * @summary Create a new staging row from scratch (manual entry)
+ */
+export const createOpsStagingBodyTitleMax = 200;
+
+export const CreateOpsStagingBody = zod.object({
+  title: zod
+    .string()
+    .min(1)
+    .max(createOpsStagingBodyTitleMax)
+    .describe(
+      "Recipe title. Trimmed server-side; must be non-empty after trim.",
+    ),
+});
+
+export const CreateOpsStagingResponse = zod
+  .object({
+    id: zod.string(),
+    source: zod.string(),
+    sourceRecipeId: zod.string().nullish(),
+    title: zod.string(),
+    status: zod.string(),
+    cuisineTags: zod.array(zod.string()),
+    estimatedTimeMin: zod.number().nullish(),
+    difficulty: zod.string().nullish(),
+    mappingRate: zod.number().nullish(),
+    unmappedIngredientNames: zod.array(zod.string()),
+    mappedIngredientCount: zod.number(),
+    imageUrl: zod.string().nullish(),
+    sourceUrl: zod.string().nullish(),
+    notes: zod.string().nullish(),
+    createdAt: zod.string(),
+    promotedRecipeId: zod.string().nullish(),
+  })
+  .and(
+    zod.object({
+      instructionsSummary: zod.string().nullish(),
+      instructionsSteps: zod
+        .array(zod.unknown())
+        .describe(
+          "Structured cooking steps. Shape is source-dependent (e.g. `{ text, index }` for Wikibooks); kept open so the contract isn't a lie.",
+        ),
+      rawPayload: zod.unknown().optional(),
+    }),
+  );
+
+/**
  * @summary List recipe-staging rows
  */
 export const listOpsStagingQueryStatusDefault = `pending`;

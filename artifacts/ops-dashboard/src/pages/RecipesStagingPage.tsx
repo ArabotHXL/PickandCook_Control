@@ -9,7 +9,9 @@ import {
   useRemapOpsStagingIngredients,
   useReextractOpsStagingIngredients,
   useUpdateOpsStaging,
+  useCreateOpsStaging,
   getListOpsStagingQueryKey,
+  getGetOpsStagingDetailQueryKey,
   type OpsStagingRow,
   type OpsStagingDetail,
   type ListOpsStagingStatus,
@@ -45,7 +47,17 @@ import {
   ArrowDown,
   Info,
   ListChecks,
+  Plus,
 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { useAuth } from "@/hooks/useAuth";
 
 function safeExternalUrl(url: string | null | undefined): string | null {
   if (!url) return null;
@@ -1096,7 +1108,11 @@ export function RecipesStagingPage() {
     };
   }, [isResizing]);
   const [note, setNote] = useState("");
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createTitle, setCreateTitle] = useState("");
   const { toast } = useToast();
+  const { user: currentAdmin } = useAuth();
+  const canWrite = currentAdmin?.role === "admin";
   const qc = useQueryClient();
   const rowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
@@ -1222,6 +1238,45 @@ export function RecipesStagingPage() {
     updateImage.mutate({ stagingId, data: { imageUrl } });
   };
 
+  const createStaging = useCreateOpsStaging({
+    mutation: {
+      onSuccess: async (created) => {
+        toast({ title: "已创建草稿", description: created.title });
+        setCreateOpen(false);
+        setCreateTitle("");
+        // Normalize filters so the newly created (manual / needs_review) row
+        // is guaranteed to appear in the queue. Otherwise the auto-select
+        // effect would reset openId back to rows[0] when the active filters
+        // (e.g. source=wikibooks, search text) hide the new row.
+        if (status !== "needs_review" && status !== "pending" && status !== "all") {
+          setStatus("needs_review");
+        }
+        if (source && source !== "manual") setSource("");
+        if (q) setQ("");
+        setPage(1);
+        // Seed the detail cache so the right pane shows the new row immediately
+        // (before the list refetch comes back), then refetch the list and
+        // finally select the new row. Awaiting the refetch ensures the
+        // auto-select effect sees the new id in `rows` and does not reset
+        // openId back to rows[0].
+        qc.setQueryData(getGetOpsStagingDetailQueryKey(created.id), created);
+        await qc.refetchQueries({ queryKey: getListOpsStagingQueryKey().slice(0, 1) });
+        setOpenId(created.id);
+      },
+      onError: (e: Error) =>
+        toast({ title: "创建失败", description: e.message, variant: "destructive" }),
+    },
+  });
+
+  const submitCreate = () => {
+    const t = createTitle.trim();
+    if (!t) {
+      toast({ title: "请输入菜谱标题", variant: "destructive" });
+      return;
+    }
+    createStaging.mutate({ data: { title: t } });
+  };
+
   const reextract = useReextractOpsStagingIngredients({
     mutation: {
       onSuccess: (d) => {
@@ -1322,6 +1377,20 @@ export function RecipesStagingPage() {
         description="Imports from TheMealDB / Wikibooks waiting to be promoted into the catalog"
         actions={
           <div className="flex items-center gap-2">
+            {canWrite && (
+              <button
+                onClick={() => {
+                  setCreateTitle("");
+                  setCreateOpen(true);
+                }}
+                data-testid="button-create-staging"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium bg-primary text-primary-foreground hover:opacity-90"
+                title="手动创建一个空白草稿,稍后填写并提升到正式菜谱"
+              >
+                <Plus className="w-4 h-4" />
+                新建菜谱
+              </button>
+            )}
             {source === "wikibooks" && (
               <button
                 onClick={() =>
@@ -1540,6 +1609,73 @@ export function RecipesStagingPage() {
           )}
         </div>
       </div>
+
+      <Dialog
+        open={createOpen}
+        onOpenChange={(o) => {
+          if (!createStaging.isPending) setCreateOpen(o);
+        }}
+      >
+        <DialogContent data-testid="dialog-create-staging">
+          <DialogHeader>
+            <DialogTitle>新建菜谱草稿</DialogTitle>
+            <DialogDescription>
+              输入菜谱标题创建一个空白草稿(状态为 needs_review)。创建后即可在右侧详情面板补全食材、步骤等信息,完成后通过常规的 Promote 流程发布到正式菜谱。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <label htmlFor="create-staging-title" className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              菜谱标题
+            </label>
+            <input
+              id="create-staging-title"
+              type="text"
+              value={createTitle}
+              maxLength={200}
+              autoFocus
+              onChange={(e) => setCreateTitle(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !createStaging.isPending) {
+                  e.preventDefault();
+                  submitCreate();
+                }
+              }}
+              placeholder="例如:番茄炒蛋"
+              data-testid="input-create-staging-title"
+              className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              最多 200 个字符 · 来源会标记为 manual
+            </p>
+          </div>
+          <DialogFooter>
+            <button
+              type="button"
+              onClick={() => setCreateOpen(false)}
+              disabled={createStaging.isPending}
+              data-testid="button-create-staging-cancel"
+              className="inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium border border-input bg-background hover:bg-muted disabled:opacity-50"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              onClick={submitCreate}
+              disabled={createStaging.isPending || !createTitle.trim()}
+              data-testid="button-create-staging-submit"
+              className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-md text-sm font-semibold bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
+            >
+              {createStaging.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" /> 创建中…
+                </>
+              ) : (
+                "创建草稿"
+              )}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -306,6 +306,15 @@ export interface OpsStagingPatchBody {
   imageUrl?: string | null;
 }
 
+export interface OpsStagingCreateBody {
+  /**
+   * Recipe title. Trimmed server-side; must be non-empty after trim.
+   * @minLength 1
+   * @maxLength 200
+   */
+  title: string;
+}
+
 export interface OpsStagingDecisionBody {
   note?: string;
 }

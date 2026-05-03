@@ -68,6 +68,7 @@ export * from "./opsRecipeListResponse";
 export * from "./opsRecipeReportListResponse";
 export * from "./opsRecipeReportRow";
 export * from "./opsRecipeRow";
+export * from "./opsStagingCreateBody";
 export * from "./opsStagingDecisionBody";
 export * from "./opsStagingDetail";
 export * from "./opsStagingFacets";

@@ -167,6 +167,72 @@ export async function listStagingRecipes(req: Request, res: Response): Promise<v
   });
 }
 
+export async function createStagingRecipe(req: Request, res: Response): Promise<void> {
+  const admin = getAdminUser(req);
+  const titleRaw = req.body?.title;
+  if (typeof titleRaw !== "string") {
+    res.status(400).json({ error: "title is required" });
+    return;
+  }
+  const title = titleRaw.trim();
+  if (!title) {
+    res.status(400).json({ error: "title cannot be empty" });
+    return;
+  }
+  if (title.length > 200) {
+    res.status(400).json({ error: "title cannot exceed 200 characters" });
+    return;
+  }
+
+  const newId = randomUUID();
+  const sourceRecipeId = randomUUID();
+
+  await query(
+    `INSERT INTO imported_recipes_staging
+       (id, source, source_recipe_id, title, status, review_status,
+        cuisine_tags, moods, constraints, dish_type, convenience_tags,
+        required_ingredient_ids, optional_ingredient_ids,
+        unmapped_ingredient_names, instructions_steps,
+        instructions_summary, mapping_rate, duplicate_status,
+        created_at, updated_at)
+     VALUES ($1, 'manual', $2, $3, 'needs_review', 'pending',
+             '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
+             '[]'::jsonb, '[]'::jsonb,
+             '[]'::jsonb, '[]'::jsonb,
+             '', NULL, 'unique',
+             NOW(), NOW())`,
+    [newId, sourceRecipeId, title]
+  );
+
+  await writeAuditLog({
+    adminUserId: admin.userId,
+    actionType: "staging_recipe_create_manual",
+    targetType: "imported_recipe_staging",
+    targetId: newId,
+    newValue: { title, source: "manual" },
+  });
+
+  const row = await queryOne<StagingRow & { raw_payload: unknown; instructions_summary: string | null; instructions_steps: unknown }>(
+    `SELECT id, source, source_recipe_id, title, status, cuisine_tags,
+            estimated_time_min, difficulty, mapping_rate,
+            unmapped_ingredient_names, required_ingredient_ids,
+            image_url, source_url, notes, created_at, promoted_recipe_id,
+            raw_payload, instructions_summary, instructions_steps
+       FROM imported_recipes_staging WHERE id = $1`,
+    [newId]
+  );
+  if (!row) {
+    res.status(500).json({ error: "Failed to load created row" });
+    return;
+  }
+  res.json({
+    ...toDto(row),
+    instructionsSummary: row.instructions_summary,
+    instructionsSteps: Array.isArray(row.instructions_steps) ? row.instructions_steps : [],
+    rawPayload: row.raw_payload,
+  });
+}
+
 export async function getStagingDetail(req: Request, res: Response): Promise<void> {
   const { stagingId } = req.params;
   const row = await queryOne<StagingRow & { raw_payload: unknown; instructions_summary: string | null; instructions_steps: unknown }>(

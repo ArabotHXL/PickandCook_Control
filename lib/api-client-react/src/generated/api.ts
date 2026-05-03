@@ -54,6 +54,7 @@ import type {
   OpsProposalListResponse,
   OpsRecipeListResponse,
   OpsRecipeReportListResponse,
+  OpsStagingCreateBody,
   OpsStagingDecisionBody,
   OpsStagingDetail,
   OpsStagingListResponse,
@@ -1796,6 +1797,97 @@ export function useGetOpsRecipeReports<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * Inserts a blank `imported_recipes_staging` row with `source='manual'`
+and `status='needs_review'`, so an operator can fill it in via the
+existing detail editor and then promote it through the same flow as
+an imported recipe. Write-admin only.
+
+ * @summary Create a new staging row from scratch (manual entry)
+ */
+export const getCreateOpsStagingUrl = () => {
+  return `/api/ops/recipes/staging`;
+};
+
+export const createOpsStaging = async (
+  opsStagingCreateBody: OpsStagingCreateBody,
+  options?: RequestInit,
+): Promise<OpsStagingDetail> => {
+  return customFetch<OpsStagingDetail>(getCreateOpsStagingUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(opsStagingCreateBody),
+  });
+};
+
+export const getCreateOpsStagingMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createOpsStaging>>,
+    TError,
+    { data: BodyType<OpsStagingCreateBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createOpsStaging>>,
+  TError,
+  { data: BodyType<OpsStagingCreateBody> },
+  TContext
+> => {
+  const mutationKey = ["createOpsStaging"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createOpsStaging>>,
+    { data: BodyType<OpsStagingCreateBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createOpsStaging(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateOpsStagingMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createOpsStaging>>
+>;
+export type CreateOpsStagingMutationBody = BodyType<OpsStagingCreateBody>;
+export type CreateOpsStagingMutationError = ErrorType<void>;
+
+/**
+ * @summary Create a new staging row from scratch (manual entry)
+ */
+export const useCreateOpsStaging = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createOpsStaging>>,
+    TError,
+    { data: BodyType<OpsStagingCreateBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createOpsStaging>>,
+  TError,
+  { data: BodyType<OpsStagingCreateBody> },
+  TContext
+> => {
+  return useMutation(getCreateOpsStagingMutationOptions(options));
+};
 
 /**
  * @summary List recipe-staging rows

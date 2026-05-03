@@ -514,6 +514,32 @@ paths:
 
   # ── Recipe Staging ────────────────────────────────────────────────────────
   /ops/recipes/staging:
+    post:
+      operationId: createOpsStaging
+      tags: [ops-staging]
+      summary: Create a new staging row from scratch (manual entry)
+      description: |
+        Inserts a blank `imported_recipes_staging` row with `source='manual'`
+        and `status='needs_review'`, so an operator can fill it in via the
+        existing detail editor and then promote it through the same flow as
+        an imported recipe. Write-admin only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpsStagingCreateBody"
+      responses:
+        "200":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsStagingDetail"
+        "400":
+          description: Invalid title
+        "403":
+          description: Write-admin required
     get:
       operationId: listOpsStaging
       tags: [ops-staging]
@@ -1604,6 +1630,16 @@ components:
           description: |
             Either an absolute http(s) URL or a normalized object-storage path
             (e.g. `/objects/<uuid>`). Pass `null` to clear the image.
+
+    OpsStagingCreateBody:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Recipe title. Trimmed server-side; must be non-empty after trim.
+      required: [title]
 
     OpsStagingDecisionBody:
       type: object
