@@ -54,7 +54,14 @@ interface PerTableResult {
   table: string;
   mode: SyncMode | "skipped";
   srcCount: number;
+  /** New rows inserted (PK did not exist on destination). */
   copied: number;
+  /** Existing rows updated by an upsert because content actually changed.
+   *  Always 0 for skip-mode tables. Idempotent re-runs over unchanged data
+   *  produce 0 here thanks to `WHERE target IS DISTINCT FROM EXCLUDED`. */
+  updated: number;
+  /** Rows whose PK already existed and either DO NOTHING fired or the
+   *  IS DISTINCT FROM filter elided the update. */
   skipped: number;
   error?: string;
   note?: string;
@@ -69,8 +76,11 @@ interface NeonDailySummary extends JobSummary {
   skipped?: string;
   tablesProcessed: number;
   tablesSkipped: number;
-  /** Rows whose INSERT actually wrote (covers both new inserts and DO UPDATE rewrites for upsert tables). */
+  /** New rows inserted across all tables (idempotent — 0 on a no-op rerun). */
   totalCopied: number;
+  /** Existing rows that were actually changed by an upsert (excludes no-op
+   *  updates thanks to `IS DISTINCT FROM`). 0 for skip-mode tables. */
+  totalUpdated: number;
   unknownTables: string[];
   perTable: PerTableResult[];
   durationMs: number;
@@ -87,8 +97,14 @@ export function classifyTable(table: string): SyncMode | "skipped" {
   return TABLE_POLICY[table] ?? "skip";
 }
 
-/** Build the conflict clause for a multi-row INSERT. */
+/** Build the conflict clause for a multi-row INSERT.
+ *  - skip mode (or PK-only table) → DO NOTHING (preserves local writes).
+ *  - upsert mode → DO UPDATE SET ... WHERE <table> IS DISTINCT FROM EXCLUDED
+ *    so unchanged rows produce zero affected rows on a rerun. This is what
+ *    makes `neon:daily` truly idempotent for upsert tables.
+ */
 export function buildConflictClause(
+  table: string,
   pkCols: string[],
   nonPkCols: string[],
   mode: SyncMode,
@@ -100,7 +116,8 @@ export function buildConflictClause(
   const sets = nonPkCols
     .map((c) => `${quoteIdent(c)} = EXCLUDED.${quoteIdent(c)}`)
     .join(", ");
-  return `ON CONFLICT (${pks}) DO UPDATE SET ${sets}`;
+  // `tablename.* IS DISTINCT FROM EXCLUDED.*` short-circuits no-op updates.
+  return `ON CONFLICT (${pks}) DO UPDATE SET ${sets} WHERE ${quoteIdent(table)}.* IS DISTINCT FROM EXCLUDED.*`;
 }
 
 /** Bind value for a single column — JSON/JSONB must be stringified. */
@@ -153,14 +170,14 @@ async function getRowCount(client: Queryable, table: string): Promise<number> {
   return parseInt(r.rows[0]?.n ?? "0", 10);
 }
 
-async function syncTable(
+export async function syncTable(
   src: Queryable,
   dst: Queryable,
   table: string,
   mode: SyncMode,
   log: JobContext["log"],
 ): Promise<PerTableResult> {
-  const result: PerTableResult = { table, mode, srcCount: 0, copied: 0, skipped: 0 };
+  const result: PerTableResult = { table, mode, srcCount: 0, copied: 0, updated: 0, skipped: 0 };
 
   // Verify the table also exists locally; if not, skip with a note.
   const dstCols = await getColumns(dst, table);
@@ -203,9 +220,13 @@ async function syncTable(
   const colNames = commonCols.map((c) => c.column_name);
   const colDataTypes = new Map(commonCols.map((c) => [c.column_name, c.data_type]));
   const nonPkCols = colNames.filter((c) => !pkSet.has(c));
-  const conflictClause = buildConflictClause(pk, nonPkCols, mode);
+  const conflictClause = buildConflictClause(table, pk, nonPkCols, mode);
   const colList = colNames.map(quoteIdent).join(", ");
   const orderBy = pk.map(quoteIdent).join(", ");
+  // RETURNING (xmax = 0) lets us tell brand-new inserts (xmax = 0) from
+  // upsert-driven updates (xmax != 0). For DO NOTHING this is still correct
+  // — only inserted rows are returned, all with xmax = 0.
+  const returning = `RETURNING (xmax = 0) AS inserted`;
 
   // Stream in batches with a deterministic ORDER BY pk so we can paginate.
   // We can't use cursors easily across pg.Client without WITH HOLD; offset
@@ -235,13 +256,20 @@ async function syncTable(
 
     const sql = `INSERT INTO ${quoteIdent(table)} (${colList})
                  VALUES ${placeholders.join(",")}
-                 ${conflictClause}`;
+                 ${conflictClause}
+                 ${returning}`;
 
     try {
-      const res = await dst.query(sql, params);
-      const affected = res.rowCount ?? 0;
-      result.copied += affected;
-      result.skipped += page.rows.length - affected;
+      const res = await dst.query<{ inserted: boolean }>(sql, params);
+      let inserts = 0;
+      let updates = 0;
+      for (const row of res.rows) {
+        if (row.inserted) inserts++;
+        else updates++;
+      }
+      result.copied += inserts;
+      result.updated += updates;
+      result.skipped += page.rows.length - inserts - updates;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       log.warn({ table, offset, err: msg }, "[neon:daily] batch insert failed");
@@ -302,6 +330,7 @@ export async function neonDaily(ctx: JobContext): Promise<JobSummary> {
       tablesProcessed: 0,
       tablesSkipped: 0,
       totalCopied: 0,
+      totalUpdated: 0,
       unknownTables: [],
       perTable: [],
       durationMs: Date.now() - startedAt,
@@ -314,6 +343,7 @@ export async function neonDaily(ctx: JobContext): Promise<JobSummary> {
   const perTable: PerTableResult[] = [];
   const unknownTables: string[] = [];
   let totalCopied = 0;
+  let totalUpdated = 0;
   let tablesProcessed = 0;
   let tablesSkipped = 0;
 
@@ -334,7 +364,7 @@ export async function neonDaily(ctx: JobContext): Promise<JobSummary> {
     for (const table of tables) {
       const cls = classifyTable(table);
       if (cls === "skipped") {
-        perTable.push({ table, mode: "skipped", srcCount: 0, copied: 0, skipped: 0, note: "backup table" });
+        perTable.push({ table, mode: "skipped", srcCount: 0, copied: 0, updated: 0, skipped: 0, note: "backup table" });
         tablesSkipped++;
         continue;
       }
@@ -347,10 +377,11 @@ export async function neonDaily(ctx: JobContext): Promise<JobSummary> {
         if (r.error || r.note) tablesSkipped++;
         else tablesProcessed++;
         totalCopied += r.copied;
+        totalUpdated += r.updated;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         ctx.log.warn({ table, err: msg }, "[neon:daily] table failed");
-        perTable.push({ table, mode: cls, srcCount: 0, copied: 0, skipped: 0, error: msg.slice(0, 500) });
+        perTable.push({ table, mode: cls, srcCount: 0, copied: 0, updated: 0, skipped: 0, error: msg.slice(0, 500) });
         tablesSkipped++;
       }
     }
@@ -383,12 +414,13 @@ export async function neonDaily(ctx: JobContext): Promise<JobSummary> {
     tablesProcessed,
     tablesSkipped,
     totalCopied,
+    totalUpdated,
     unknownTables,
     perTable,
     durationMs: Date.now() - startedAt,
   };
   ctx.log.info(
-    { tablesProcessed, tablesSkipped, totalCopied, unknownTables: unknownTables.length },
+    { tablesProcessed, tablesSkipped, totalCopied, totalUpdated, unknownTables: unknownTables.length },
     "[neon:daily] done",
   );
   return summary;
