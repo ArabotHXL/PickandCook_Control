@@ -29,10 +29,10 @@ describe("classifyTable", () => {
 });
 
 describe("buildConflictClause", () => {
-  it("emits idempotent DO UPDATE for upsert mode (with IS DISTINCT FROM guard)", () => {
+  it("emits idempotent DO UPDATE for upsert mode (with column-scoped IS DISTINCT FROM guard)", () => {
     const sql = buildConflictClause("products", ["id"], ["name", "price"], "upsert");
     expect(sql).toBe(
-      `ON CONFLICT ("id") DO UPDATE SET "name" = EXCLUDED."name", "price" = EXCLUDED."price" WHERE "products".* IS DISTINCT FROM EXCLUDED.*`,
+      `ON CONFLICT ("id") DO UPDATE SET "name" = EXCLUDED."name", "price" = EXCLUDED."price" WHERE ("products"."name", "products"."price") IS DISTINCT FROM (EXCLUDED."name", EXCLUDED."price")`,
     );
   });
   it("emits DO NOTHING for skip mode", () => {
@@ -47,7 +47,7 @@ describe("buildConflictClause", () => {
     const sql = buildConflictClause('weird"tbl', ['weird"id'], ['col"x'], "upsert");
     expect(sql).toContain(`"weird""id"`);
     expect(sql).toContain(`"col""x"`);
-    expect(sql).toContain(`"weird""tbl".*`);
+    expect(sql).toContain(`"weird""tbl"."col""x"`);
   });
 });
 
@@ -159,7 +159,9 @@ describe("syncTable (integration with mocked clients)", () => {
     const insert = dst.calls.find((c) => c.sql.startsWith("INSERT INTO"))!;
     expect(insert.sql).toContain('INSERT INTO "products"');
     expect(insert.sql).toContain("DO UPDATE SET");
-    expect(insert.sql).toContain('"products".* IS DISTINCT FROM EXCLUDED.*');
+    expect(insert.sql).toContain("IS DISTINCT FROM");
+    expect(insert.sql).toContain('"products"."name"');
+    expect(insert.sql).toContain('EXCLUDED."name"');
     expect(insert.sql).toContain("RETURNING (xmax = 0) AS inserted");
 
     // jsonb values must be stringified before binding.

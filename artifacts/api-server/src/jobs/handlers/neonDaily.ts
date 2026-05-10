@@ -116,8 +116,13 @@ export function buildConflictClause(
   const sets = nonPkCols
     .map((c) => `${quoteIdent(c)} = EXCLUDED.${quoteIdent(c)}`)
     .join(", ");
-  // `tablename.* IS DISTINCT FROM EXCLUDED.*` short-circuits no-op updates.
-  return `ON CONFLICT (${pks}) DO UPDATE SET ${sets} WHERE ${quoteIdent(table)}.* IS DISTINCT FROM EXCLUDED.*`;
+  // Compare *only* the synced non-PK columns (not table.*) so destination-
+  // only columns don't cause false-positive updates on a rerun. This keeps
+  // idempotency tight even when source/destination schemas diverge.
+  const t = quoteIdent(table);
+  const lhs = nonPkCols.map((c) => `${t}.${quoteIdent(c)}`).join(", ");
+  const rhs = nonPkCols.map((c) => `EXCLUDED.${quoteIdent(c)}`).join(", ");
+  return `ON CONFLICT (${pks}) DO UPDATE SET ${sets} WHERE (${lhs}) IS DISTINCT FROM (${rhs})`;
 }
 
 /** Bind value for a single column — JSON/JSONB must be stringified. */
