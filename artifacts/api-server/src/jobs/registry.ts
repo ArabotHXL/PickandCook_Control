@@ -2,6 +2,7 @@ import type { JobHandler } from "./runner.js";
 import { recipesNightly } from "./handlers/recipesNightly.js";
 import { productsNightly } from "./handlers/productsNightly.js";
 import { wikibooksWeekly } from "./handlers/wikibooksWeekly.js";
+import { neonDaily } from "./handlers/neonDaily.js";
 
 export interface JobDefinition {
   name: string;
@@ -28,6 +29,12 @@ export const JOB_DEFINITIONS: JobDefinition[] = [
     cronExpr: "0 5 * * 0",
     description: "Wikibooks Cookbook scraper — wikitext-based ingredient extraction → imported_recipes_staging",
     handler: wikibooksWeekly,
+  },
+  {
+    name: "neon:daily",
+    cronExpr: "0 2 * * *",
+    description: "Pull upstream reference + user data from NEON_DATABASE_URL into the local DB (additive, per-table conflict policy)",
+    handler: neonDaily,
   },
 ];
 
