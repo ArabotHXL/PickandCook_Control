@@ -60,6 +60,7 @@ export const AUDIT_TO_ENDPOINT: Record<string, Endpoint> = {
   // recipes endpoint — direct catalog edits
   update_recipe: "recipes",
   restore_recipe_revision: "recipes",
+  set_recipe_quality: "recipes",
   // recipes endpoint — promotion of staging row produces a new catalog recipe
   staging_recipe_promote: "recipes",
   // NOTE: `manual_recipe_created` is intentionally NOT routed here. It fires
@@ -495,7 +496,7 @@ export async function loadRecipesBatch(cursor: CursorPos, limit = BATCH_SIZE): P
      WHERE (al.created_at, al.id::text) > ($1::timestamp, COALESCE($2::text, ''))
        AND (
          (al.target_type = 'recipe'
-            AND al.action_type IN ('update_recipe','restore_recipe_revision')
+            AND al.action_type IN ('update_recipe','restore_recipe_revision','set_recipe_quality')
             AND al.target_id IS NOT NULL)
          OR (al.target_type = 'imported_recipe_staging'
                AND al.action_type = 'staging_recipe_promote'

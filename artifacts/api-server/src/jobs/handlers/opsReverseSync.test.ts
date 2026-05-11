@@ -16,6 +16,7 @@ describe("classifyAction / AUDIT_TO_ENDPOINT", () => {
   it("routes recipe edits to recipes endpoint", () => {
     expect(classifyAction("update_recipe")).toBe("recipes");
     expect(classifyAction("restore_recipe_revision")).toBe("recipes");
+    expect(classifyAction("set_recipe_quality")).toBe("recipes");
     expect(classifyAction("staging_recipe_promote")).toBe("recipes");
     // manual_recipe_created is staging-only (target_type=imported_recipe_staging);
     // the catalog row gets pushed via staging_recipe_promote when promoted.
