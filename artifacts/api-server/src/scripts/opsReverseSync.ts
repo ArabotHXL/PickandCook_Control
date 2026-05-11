@@ -43,7 +43,7 @@ function parseArgs(argv: string[]): CliArgs {
       }
       out.table = resolved;
     } else if (a === "--help" || a === "-h") {
-      console.log(`Usage: ops-sync [--dry-run] [--once] [--since=ISO] [--table=recipes|products|moderation-decisions] [--omit-control-updated-at]`);
+      console.log(`Usage: ops-sync [--dry-run] [--once] [--since=ISO] [--table=recipes|products|moderation-decisions] [--omit-control-updated-at]\n\n  --once  accepted for spec parity; CLI always runs exactly one pass.`);
       process.exit(0);
     } else {
       console.error(`Unknown flag: ${a}`);
