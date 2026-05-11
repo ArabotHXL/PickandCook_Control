@@ -1,4 +1,5 @@
 import pg from "pg";
+import { logger } from "../../lib/logger.js";
 
 const { Pool } = pg;
 
@@ -40,6 +41,10 @@ export const opsPool = new Pool({
   max: 5,
   connectionTimeoutMillis: 15000,
   idleTimeoutMillis: 120000,
+});
+
+opsPool.on("error", (err) => {
+  logger.warn({ err }, "idle pg client error (opsPool)");
 });
 
 export async function query<T = Record<string, unknown>>(
