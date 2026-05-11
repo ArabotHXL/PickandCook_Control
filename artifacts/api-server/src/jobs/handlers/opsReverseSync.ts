@@ -912,6 +912,26 @@ export async function runReverseSync(ctx: JobContext, runOpts: RunOptions = {}):
     },
     "[ops-sync] done"
   );
+
+  // Run-level failure surface: any endpoint marked "failed" (fatal HTTP
+  // 401/403/503 from prod, or a thrown exception caught above) must
+  // propagate as a thrown error so:
+  //   • the scheduler `runJob` runner records this as a failed job_run
+  //     (and triggers any configured failure alerts), and
+  //   • the CLI's outer try/catch exits non-zero.
+  // Per-endpoint forensic detail is already persisted to `ops_sync_runs`
+  // and to `summary.perEndpoint` (logged just above) — the throw only
+  // needs a short summary message. Attach the summary to the error so
+  // callers that want it can recover it.
+  const failed = perEndpoint.filter((e) => e.status === "failed");
+  if (failed.length > 0) {
+    const detail = failed
+      .map((e) => `${e.endpoint}: ${e.errorMessage ?? "(no message)"}`)
+      .join("; ");
+    const err = new Error(`reverse-sync had ${failed.length} fatal endpoint failure(s): ${detail}`);
+    (err as Error & { reverseSyncSummary?: ReverseSyncSummary }).reverseSyncSummary = summary;
+    throw err;
+  }
   return summary;
 }
 
