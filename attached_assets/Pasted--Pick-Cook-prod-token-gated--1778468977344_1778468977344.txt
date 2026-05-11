@@ -1,0 +1,140 @@
+## 背景
+Pick & Cook prod 仓库(已部署)新增了三个 token-gated 接口,用来接收我们这边
+"已审核"的内容。我们这边需要写一个定时任务,把过去一段时间内被运营审核通过 / 修改 /
+下架的条目批量推过去。
+prod 仓库:ArabotHXL/PickandCook(已合并 Task #678)
+prod base URL:你们 Replit 部署的域名(.replit.app 或自定义域名),环境变量 PROD_API_BASE
+prod 接收路由:
+  POST {PROD_API_BASE}/api/admin/ops-sync/recipes
+  POST {PROD_API_BASE}/api/admin/ops-sync/moderation-decisions
+  POST {PROD_API_BASE}/api/admin/ops-sync/products
+## 鉴权
+所有请求必须带 Header:
+    Authorization: Bearer ${OPS_REVERSE_SYNC_TOKEN}
+这是一个独立的服务 token(不是用户 JWT)。在 Control 这个 repo 里加一个同名 Secret,
+值跟 prod 那边设的完全一致。没设会返回 401 missing_bearer_token,值不对返回 403
+invalid_token,prod 没配置该 secret 会返回 503。
+## 三个接口的契约
+### 1) /api/admin/ops-sync/recipes
+- 用途:推送由运营在 Control 中创建/编辑的 catalog recipe(不是用户 UGC)。
+- 请求体:`{ items: Recipe[] }`,batch ≤ 100 条,超出返回 400 batch_too_large。
+- Recipe 字段(snake_case 不接受,只接受 camelCase;未列出的字段不会被写入):
+    id              (string, 必填,稳定 ID)
+    title           (string, 必填)
+    cuisineTags     (string[], 可选)
+    moodTags        (string[], 可选)
+    seasonTags      (string[], 可选)
+    dietaryTags     (string[], 可选)
+    allergens       (string[], 可选)
+    ingredients     (jsonb, 可选)
+    instructions    (string, 可选)
+    instructionsSummary (string, 可选)
+    estimatedTimeMin (number, 可选)
+    cookTimeMinutes (number, 可选)
+    servings        (number, 可选)
+    difficulty      (string, 可选)
+    nutritionSummary (jsonb, 可选)
+    qualityTier     (string, 可选)
+    imageUrl        (string, 可选)
+- Conflict policy:prod 端用 `recipes.origin` 列做归属。
+    - 新行:被 stamp 为 `origin='control'`
+    - 已存在的行:只有 `origin='control'` 才允许更新;
+      `origin in ('prod','user','themealdb-import')` 会被跳过,返回
+      `{ action:"skipped", reason:"origin_locked" }`
+- 幂等:重复推送同样字段返回 `{ action:"skipped", reason:"no_change" }`,
+  jsonb / array 顺序变化也会被识别为相同。
+- 部分字段更新是允许的(只发想改的字段即可),未发的字段不会被清空。
+### 2) /api/admin/ops-sync/moderation-decisions
+- 用途:推送对 catalog recipe / 用户 UGC / 评论的下架/恢复决策。
+- 请求体:`{ decisions: Decision[] }`,batch ≤ 100。
+- Decision 字段:
+    contentType   (enum: "recipe" | "user_recipe" | "variation_comment", 必填)
+    contentId     (string, 必填)
+    action        (enum: "remove" | "restore", 必填)
+    reason        (string, 可选,审核备注)
+    moderatorId   (string, 可选)
+- 行为:
+    - recipe + remove → 设置 `recipes.hidden_at = now()`,
+      所有 discovery / recommend / browse / search 路径自动停止露出。
+    - recipe + restore → `hidden_at = NULL`。
+    - user_recipe + remove → `visibility_state='removed'`, `removed_at=now()`,
+      `submission_status='draft'`。
+    - user_recipe + restore → `visibility_state='public'`,
+      `submission_status='approved'`(会一并清掉 remove 时强制写入的 draft 状态),
+      `removed_at=NULL`。
+    - variation_comment + remove/restore → 改 `status` 字段。
+- 找不到对应内容返回 `{ action:"skipped", reason:"not_found" }`。
+- 状态已是目标态返回 `{ action:"skipped", reason:"not_removed (current=...)" }` 或类似。
+### 3) /api/admin/ops-sync/products
+- 用途:同时推送 products 表 和 / 或 barcode_meta 表。
+- 请求体:`{ products?: Product[], barcodeMeta?: BarcodeMeta[] }`,
+  两个数组合计 ≤ 100。
+- Product 字段:
+    id, name, synonyms[], department, defaultUnit, cultureTags[],
+    kcal, protein, carbs, fat, sodium, fiber, sugar,
+    brand, allergens[], ingredientsText, servingSize, brandedFoodCategory,
+    controlUpdatedAt  ← **更新已有行时必填(ISO timestamp)**,新增可省略
+- BarcodeMeta 字段:
+    barcode, source, brand, ingredientsText, allergens[], servingSize,
+    packageSize, imageUrl, nutritionGrade, novaGroup, categories[],
+    controlUpdatedAt  ← **更新已有行时必填(ISO timestamp)**,新增可省略
+- Conflict policy(关键):
+    - prod 端会比较 `existing.updated_at` 与 `controlUpdatedAt`。
+      若 prod 行更新时间晚于 Control 快照,返回
+      `{ action:"skipped", reason:"prod_newer" }`,保护 prod 端 OFF/USDA
+      富化的数据不被覆盖。
+    - 缺 `controlUpdatedAt` 想更新已有行 →
+      `{ action:"skipped", reason:"missing_control_updated_at" }`。
+    - 写入用 CAS 谓词 `WHERE updated_at <= controlUpdatedAt`,
+      所以 SELECT→UPDATE 之间 prod 端发生的写入会让本次 update 被丢弃,
+      Control 这边收到 `prod_newer`,按重试策略下一轮再推即可。
+## 通用契约
+- 所有接口支持 `?dryRun=1`,只返回 results 不写库,用于联调。
+- 所有接口都返回:
+    {
+      ok: true,
+      dryRun: boolean,
+      summary: { inserted, updated, skipped, errors },
+      results: [ { id, action, reason? } ]
+    }
+- 单条出错不会污染整个 batch(per-row try/catch),错误条返回
+  `{ action:"error", reason:"<err message>" }`。
+- batch ≤ 100;超过返回 400 batch_too_large。
+- 重复推同样的内容是安全的(全部幂等)。
+## Cron 实现要求
+1. 用 node-cron 或 Replit Scheduled Deployment,默认每 15 分钟跑一次。
+   也接受用户传 `--schedule` 改频率(参考下方 CLI)。
+2. 启动时从 Control DB 找出"自上次成功推送以来"被运营改过的行
+   (建议在 Control 端建一个 `ops_sync_cursor` 表,记录每张表的
+   last_pushed_at;首次跑时回退一段时间窗口,例如 7 天)。
+3. 按表分组,每张表 ≤ 100 条/批,顺序:moderation-decisions → recipes → products。
+4. 每条 product / barcode_meta 必须带 `controlUpdatedAt`(就用 Control 行的
+   updated_at 字段)。
+5. 推完一批后:
+    - 把 `summary` + `results` 写入 Control 端的 `ops_sync_runs` 审计表
+      (字段:run_id, started_at, finished_at, endpoint, summary, sample_results)
+    - 只有当 `summary.errors === 0` 时才推进 cursor;否则保持 cursor 不变,
+      下次重跑(因为接口幂等,重跑安全)。
+6. 失败重试:网络错误 / 5xx → 指数退避重试 3 次;4xx 立刻记录并跳过。
+7. 默认提供一个 CLI:
+       npm run ops-sync -- --dry-run
+       npm run ops-sync -- --since=2026-05-01 --table=recipes
+       npm run ops-sync -- --once
+   CLI 不会被 cron 自动调用,只供运营手动验证。
+8. 启动时如果 OPS_REVERSE_SYNC_TOKEN 未设,直接 fail-fast 退出并打日志。
+9. 健康检查日志至少包含:每次运行的 batch 数、每张表的 inserted/updated/skipped/errors,
+   方便后续接告警。
+## 端到端验证(写完之后请跑一遍并把输出贴给我)
+1. token 错误:Authorization: Bearer wrong → 期望 403 invalid_token。
+2. dryRun 单条 recipe(随便造一个 id),期望
+   `{ ok:true, dryRun:true, summary:{inserted:1,...}, results:[{id, action:"inserted"}] }`。
+3. 同一条不带 dryRun 跑两次,第二次期望
+   `{ summary:{ skipped:1 }, results:[{ action:"skipped", reason:"no_change" }] }`。
+4. 推一条 product 但不带 controlUpdatedAt(且 prod 端已有该 id),
+   期望 `{ action:"skipped", reason:"missing_control_updated_at" }`。
+## 不要做
+- 不要把 OPS_REVERSE_SYNC_TOKEN 写进代码、提交日志或返回给 prod 之外的地方。
+- 不要尝试修改 prod 端 `recipes.origin='prod'/'user'/'themealdb-import'` 的行。
+- 不要绕过 batch ≤ 100 的限制。
+- 不要在收到 `prod_newer` 时强行重推 —— 那是 prod 端有更新的合法信号,
+  应该让运营在 Control 那边重新拉取 prod 数据再决定是否覆盖。

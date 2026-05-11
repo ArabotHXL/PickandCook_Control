@@ -60,9 +60,13 @@ export const AUDIT_TO_ENDPOINT: Record<string, Endpoint> = {
   // recipes endpoint — direct catalog edits
   update_recipe: "recipes",
   restore_recipe_revision: "recipes",
-  manual_recipe_created: "recipes",
   // recipes endpoint — promotion of staging row produces a new catalog recipe
   staging_recipe_promote: "recipes",
+  // NOTE: `manual_recipe_created` is intentionally NOT routed here. It fires
+  // with target_type='imported_recipe_staging' (a staging-only manual create);
+  // the row never enters the catalog `recipes` table directly. If/when an
+  // operator promotes that staging row, `staging_recipe_promote` carries it
+  // across via imported_recipes_staging.promoted_recipe_id. See KNOWN_NOOP_ACTIONS.
   // moderation-decisions endpoint — abuse_report decisions
   moderation_approved: "moderation-decisions",
   moderation_bulk_approved: "moderation-decisions",
@@ -161,10 +165,13 @@ export async function postBatch(opts: {
   const delays = opts.retryDelaysMs ?? RETRY_DELAYS_MS;
   const timeoutMs = opts.timeoutMs ?? HTTP_TIMEOUT_MS;
 
-  // Up to delays.length attempts on retryable errors. 4xx (except 401/403/503)
-  // returns a non-fatal skip. 401/403/503 returns a fatal stop.
+  // 1 initial attempt + delays.length retries on retryable errors. 4xx
+  // (except 401/403/503) returns a non-fatal skip. 401/403/503 returns a
+  // fatal stop. With the default RETRY_DELAYS_MS = [500, 1500, 4500] this
+  // makes 4 total attempts with the full 500/1500/4500 backoff sequence.
   let lastErr: { status: number; message: string } = { status: 0, message: "no attempt" };
-  for (let attempt = 0; attempt < delays.length; attempt++) {
+  const totalAttempts = delays.length + 1;
+  for (let attempt = 0; attempt < totalAttempts; attempt++) {
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), timeoutMs);
     try {
@@ -213,7 +220,7 @@ export async function postBatch(opts: {
     }
 
     // Don't sleep after the last attempt.
-    if (attempt < delays.length - 1) {
+    if (attempt < delays.length) {
       await sleep(delays[attempt]!);
     }
   }
@@ -449,7 +456,7 @@ export async function loadRecipesBatch(cursor: Date, limit = BATCH_SIZE): Promis
        SELECT al.target_id::varchar AS recipe_id, MAX(al.created_at) AS max_ts
          FROM ops_audit_log al
         WHERE al.target_type = 'recipe'
-          AND al.action_type IN ('update_recipe','restore_recipe_revision','manual_recipe_created')
+          AND al.action_type IN ('update_recipe','restore_recipe_revision')
           AND al.created_at > $1::timestamp
           AND al.target_id IS NOT NULL
         GROUP BY al.target_id
@@ -809,7 +816,9 @@ async function collectUnknownActionTypes(): Promise<string[]> {
     const knownPrefixes = ["set_user_role", "system.", "staging_recipes_", "staging_recipe_edit",
       "staging_recipe_reject", "proposal_", "moderation_rejected", "moderation_needs_more_info",
       "moderation_escalated", "moderation_bulk_rejected", "moderation_bulk_needs_more_info",
-      "moderation_bulk_escalated"];
+      "moderation_bulk_escalated",
+      // Recognized but deliberately not pushed (see AUDIT_TO_ENDPOINT comment):
+      "manual_recipe_created"];
     return rows
       .map((r) => r.action_type)
       .filter((a) => !AUDIT_TO_ENDPOINT[a] && !knownPrefixes.some((p) => a === p || a.startsWith(p)));

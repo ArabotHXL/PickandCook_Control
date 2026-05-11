@@ -16,8 +16,10 @@ describe("classifyAction / AUDIT_TO_ENDPOINT", () => {
   it("routes recipe edits to recipes endpoint", () => {
     expect(classifyAction("update_recipe")).toBe("recipes");
     expect(classifyAction("restore_recipe_revision")).toBe("recipes");
-    expect(classifyAction("manual_recipe_created")).toBe("recipes");
     expect(classifyAction("staging_recipe_promote")).toBe("recipes");
+    // manual_recipe_created is staging-only (target_type=imported_recipe_staging);
+    // the catalog row gets pushed via staging_recipe_promote when promoted.
+    expect(classifyAction("manual_recipe_created")).toBe("unknown");
   });
   it("routes moderation_approved to moderation-decisions", () => {
     expect(classifyAction("moderation_approved")).toBe("moderation-decisions");
@@ -202,8 +204,9 @@ describe("postBatch", () => {
     expect((fetchImpl as unknown as { mock: { calls: unknown[] } }).mock.calls).toHaveLength(2);
   });
 
-  it("retries on network errors then exhausts", async () => {
+  it("retries on network errors then exhausts (1 initial + 3 retries = 4 attempts)", async () => {
     const fetchImpl = makeFetch([
+      new Error("ECONNRESET"),
       new Error("ECONNRESET"),
       new Error("ECONNRESET"),
       new Error("ECONNRESET"),
@@ -214,7 +217,32 @@ describe("postBatch", () => {
       expect(r.fatal).toBe(false);
       expect(r.message).toContain("retries_exhausted");
     }
-    expect((fetchImpl as unknown as { mock: { calls: unknown[] } }).mock.calls).toHaveLength(3);
+    expect((fetchImpl as unknown as { mock: { calls: unknown[] } }).mock.calls).toHaveLength(4);
+  });
+
+  it("uses the full 500/1500/4500 backoff sequence (all delays applied between retries)", async () => {
+    const sleeps: number[] = [];
+    const realSetTimeout = global.setTimeout;
+    // Capture sleep durations from the postBatch sleep() helper without actually waiting.
+    (global as unknown as { setTimeout: typeof setTimeout }).setTimeout = ((fn: () => void, ms: number) => {
+      // Only capture the sleep() helper's setTimeouts (positive ms with a fn); ignore AbortController timers.
+      if (typeof ms === "number" && ms > 0 && ms < 10_000) sleeps.push(ms);
+      return realSetTimeout(fn, 0);
+    }) as unknown as typeof setTimeout;
+    try {
+      const fetchImpl = makeFetch([
+        new Error("ECONNRESET"),
+        new Error("ECONNRESET"),
+        new Error("ECONNRESET"),
+        new Error("ECONNRESET"),
+      ]) as unknown as typeof fetch;
+      await postBatch({ url: "http://x", token: "t", body: {}, fetchImpl });
+      // The 30s HTTP_TIMEOUT_MS AbortController timer is filtered above (>= 10_000).
+      // Sleeps applied between attempts must be exactly the configured delays in order.
+      expect(sleeps).toEqual([500, 1500, 4500]);
+    } finally {
+      (global as unknown as { setTimeout: typeof setTimeout }).setTimeout = realSetTimeout;
+    }
   });
 
   it("treats 401 as fatal (no retry)", async () => {
@@ -273,7 +301,6 @@ describe("AUDIT_TO_ENDPOINT routing table is complete for known surfaces", () =>
     const expected = [
       "update_recipe",
       "restore_recipe_revision",
-      "manual_recipe_created",
       "staging_recipe_promote",
       "moderation_approved",
       "moderation_bulk_approved",
