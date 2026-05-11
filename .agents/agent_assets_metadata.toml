@@ -6,3 +6,9 @@ id = "xufwYN3RQJKj5FwchL_AW"
 uri = "file://docs/OPS_PLATFORM_VISION.md"
 type = "text"
 title = "Pick & Cook 内部运营平台 — All-in-One 规划"
+
+[[outputs]]
+id = "UeE_oS6JtSOhIr0ZL9i93"
+uri = "file://README.md"
+type = "text"
+title = "README.md"
