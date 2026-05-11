@@ -160,14 +160,22 @@ export async function ensureReverseSyncSchema(): Promise<void> {
      $$`
   );
 
-  // Cursor table — endpoint is one of: 'recipes', 'moderation-decisions', 'products'
+  // Cursor table — endpoint is one of: 'recipes', 'moderation-decisions', 'products'.
+  // `last_pushed_audit_id` is the second component of a keyset cursor:
+  // loaders paginate by `(created_at, id) > (last_pushed_at, last_pushed_audit_id)`
+  // so that >BATCH_SIZE audit rows sharing an identical `created_at` (e.g. all
+  // written from one bulk transaction where postgres `now()` is fixed) are not
+  // dropped at batch boundaries.
   await query(
     `CREATE TABLE IF NOT EXISTS ops_sync_cursor (
-       endpoint        text PRIMARY KEY,
-       last_pushed_at  timestamp NOT NULL,
-       updated_at      timestamp NOT NULL DEFAULT NOW()
+       endpoint              text PRIMARY KEY,
+       last_pushed_at        timestamp NOT NULL,
+       last_pushed_audit_id  text,
+       updated_at            timestamp NOT NULL DEFAULT NOW()
      )`
   );
+  // Backfill column on pre-existing tables (idempotent).
+  await query(`ALTER TABLE ops_sync_cursor ADD COLUMN IF NOT EXISTS last_pushed_audit_id text`);
 
   // Run audit table
   await query(

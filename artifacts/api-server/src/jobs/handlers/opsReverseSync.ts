@@ -229,28 +229,40 @@ export async function postBatch(opts: {
 
 // ── Cursor / audit helpers ─────────────────────────────────────────────────
 
-/** Read or bootstrap the cursor for an endpoint. */
-export async function getCursor(endpoint: Endpoint, opts?: { sinceOverride?: string }): Promise<Date> {
-  if (opts?.sinceOverride) {
-    return new Date(opts.sinceOverride);
-  }
-  const row = await queryOne<{ last_pushed_at: string }>(
-    `SELECT last_pushed_at::text FROM ops_sync_cursor WHERE endpoint = $1`,
-    [endpoint]
-  );
-  if (row) return new Date(row.last_pushed_at);
-  // First run: walk back BACKFILL_DAYS so we sweep up the recent history.
-  const backfill = new Date(Date.now() - BACKFILL_DAYS * 24 * 60 * 60 * 1000);
-  return backfill;
+/** Composite keyset cursor: (created_at, audit_id). The second component
+ *  disambiguates rows sharing an identical `created_at` (e.g. multiple audit
+ *  inserts in one postgres transaction, where `now()` is fixed for the whole
+ *  txn). On a fresh bootstrap `id` is null and the loaders treat it as the
+ *  empty string so any real audit id is `>` it. */
+export interface CursorPos {
+  ts: Date;
+  id: string | null;
 }
 
-async function setCursor(endpoint: Endpoint, ts: string): Promise<void> {
+/** Read or bootstrap the cursor for an endpoint. */
+export async function getCursor(endpoint: Endpoint, opts?: { sinceOverride?: string }): Promise<CursorPos> {
+  if (opts?.sinceOverride) {
+    return { ts: new Date(opts.sinceOverride), id: null };
+  }
+  const row = await queryOne<{ last_pushed_at: string; last_pushed_audit_id: string | null }>(
+    `SELECT last_pushed_at::text, last_pushed_audit_id FROM ops_sync_cursor WHERE endpoint = $1`,
+    [endpoint]
+  );
+  if (row) return { ts: new Date(row.last_pushed_at), id: row.last_pushed_audit_id };
+  // First run: walk back BACKFILL_DAYS so we sweep up the recent history.
+  const backfill = new Date(Date.now() - BACKFILL_DAYS * 24 * 60 * 60 * 1000);
+  return { ts: backfill, id: null };
+}
+
+async function setCursor(endpoint: Endpoint, ts: string, id: string | null): Promise<void> {
   await query(
-    `INSERT INTO ops_sync_cursor (endpoint, last_pushed_at, updated_at)
-     VALUES ($1, $2::timestamp, NOW())
+    `INSERT INTO ops_sync_cursor (endpoint, last_pushed_at, last_pushed_audit_id, updated_at)
+     VALUES ($1, $2::timestamp, $3, NOW())
      ON CONFLICT (endpoint) DO UPDATE
-       SET last_pushed_at = EXCLUDED.last_pushed_at, updated_at = NOW()`,
-    [endpoint, ts]
+       SET last_pushed_at = EXCLUDED.last_pushed_at,
+           last_pushed_audit_id = EXCLUDED.last_pushed_audit_id,
+           updated_at = NOW()`,
+    [endpoint, ts, id]
   );
 }
 
@@ -444,80 +456,110 @@ export function mapDecisionRow(row: DecisionRow): DecisionPayload | null {
 
 export interface LoadedBatch<T> {
   items: T[];
-  /** Latest audit timestamp seen in this batch — what we'd advance the cursor to. */
+  /** Composite keyset position of the last audit row consumed in this batch.
+   *  Cursor advances to this exact (ts, id) pair so the next batch's predicate
+   *  `(created_at, id) > (ts, id)` skips the consumed row but picks up any
+   *  unconsumed siblings sharing the same `created_at`. */
   maxAuditTs: string | null;
+  maxAuditId: string | null;
 }
 
-/** Recipes: most-recent-first audit entries on `recipe` plus `staging_recipe_promote`
- *  via `imported_recipes_staging.promoted_recipe_id`. Joins `recipes` for current row state. */
-export async function loadRecipesBatch(cursor: Date, limit = BATCH_SIZE): Promise<LoadedBatch<{ row: RecipeRow; auditTs: string }>> {
-  const rows = await query<RecipeRow & { audit_ts: string }>(
-    `WITH from_audit AS (
-       SELECT al.target_id::varchar AS recipe_id, MAX(al.created_at) AS max_ts
-         FROM ops_audit_log al
-        WHERE al.target_type = 'recipe'
-          AND al.action_type IN ('update_recipe','restore_recipe_revision')
-          AND al.created_at > $1::timestamp
-          AND al.target_id IS NOT NULL
-        GROUP BY al.target_id
-       UNION ALL
-       SELECT s.promoted_recipe_id AS recipe_id, MAX(al.created_at) AS max_ts
-         FROM ops_audit_log al
-         JOIN imported_recipes_staging s ON s.id::text = al.target_id
-        WHERE al.target_type = 'imported_recipe_staging'
-          AND al.action_type = 'staging_recipe_promote'
-          AND al.created_at > $1::timestamp
-          AND s.promoted_recipe_id IS NOT NULL
-        GROUP BY s.promoted_recipe_id
+/** Recipes: paginate over the underlying audit rows (not aggregated targets)
+ *  so a bulk transaction with >BATCH_SIZE audit rows at the same `created_at`
+ *  cannot drop rows at the batch boundary. We then dedupe by recipe_id and
+ *  push each recipe's *current* state once. The returned (maxAuditTs,
+ *  maxAuditId) is the keyset position of the last audit row consumed —
+ *  guaranteed to match the LAST row of the inner ordered_audit CTE because
+ *  ordering is `(created_at, id) ASC`. */
+export async function loadRecipesBatch(cursor: CursorPos, limit = BATCH_SIZE): Promise<LoadedBatch<{ row: RecipeRow; auditTs: string; auditId: string }>> {
+  const rows = await query<RecipeRow & { audit_ts: string; audit_id: string }>(
+    `WITH ordered_audit AS (
+       SELECT
+         CASE
+           WHEN al.target_type = 'recipe' THEN al.target_id::varchar
+           WHEN al.target_type = 'imported_recipe_staging' THEN s.promoted_recipe_id
+         END AS recipe_id,
+         al.created_at,
+         al.id::text AS audit_id
+       FROM ops_audit_log al
+       LEFT JOIN imported_recipes_staging s
+         ON s.id::text = al.target_id
+        AND al.target_type = 'imported_recipe_staging'
+       WHERE (al.created_at, al.id::text) > ($1::timestamp, COALESCE($2::text, ''))
+         AND (
+           (al.target_type = 'recipe'
+              AND al.action_type IN ('update_recipe','restore_recipe_revision')
+              AND al.target_id IS NOT NULL)
+           OR (al.target_type = 'imported_recipe_staging'
+                 AND al.action_type = 'staging_recipe_promote'
+                 AND s.promoted_recipe_id IS NOT NULL)
+         )
+       ORDER BY al.created_at ASC, al.id::text ASC
+       LIMIT $3
      ),
-     coalesced AS (
-       SELECT recipe_id, MAX(max_ts) AS max_ts FROM from_audit GROUP BY recipe_id
+     deduped AS (
+       SELECT recipe_id,
+              MAX(created_at) AS audit_ts,
+              MAX(audit_id)   AS audit_id
+         FROM ordered_audit
+        WHERE recipe_id IS NOT NULL
+        GROUP BY recipe_id
      )
      SELECT r.id, r.title, r.cuisine_tags, r.moods, r.constraints,
             r.estimated_time_min, r.default_servings, r.difficulty,
             r.nutrition_summary, r.instructions_summary, r.quality_tier,
             r.image_url, r.updated_at::text AS updated_at,
-            c.max_ts::text AS audit_ts
-       FROM coalesced c
-       JOIN recipes r ON r.id = c.recipe_id
-      ORDER BY c.max_ts ASC
-      LIMIT $2`,
-    [cursor.toISOString(), limit]
+            d.audit_ts::text AS audit_ts,
+            d.audit_id       AS audit_id
+       FROM deduped d
+       JOIN recipes r ON r.id = d.recipe_id
+      ORDER BY d.audit_ts ASC, d.audit_id ASC`,
+    [cursor.ts.toISOString(), cursor.id, limit]
   );
-  const items = rows.map((r) => ({ row: r, auditTs: r.audit_ts }));
-  const maxAuditTs = items.length ? items[items.length - 1]!.auditTs : null;
-  return { items, maxAuditTs };
+  const items = rows.map((r) => ({ row: r, auditTs: r.audit_ts, auditId: r.audit_id }));
+  const last = items[items.length - 1];
+  return { items, maxAuditTs: last?.auditTs ?? null, maxAuditId: last?.auditId ?? null };
 }
 
-export async function loadProductsBatch(cursor: Date, limit = BATCH_SIZE): Promise<LoadedBatch<{ row: ProductRow; auditTs: string }>> {
-  const rows = await query<ProductRow & { audit_ts: string }>(
-    `WITH from_audit AS (
-       SELECT al.target_id::varchar AS product_id, MAX(al.created_at) AS max_ts
+export async function loadProductsBatch(cursor: CursorPos, limit = BATCH_SIZE): Promise<LoadedBatch<{ row: ProductRow; auditTs: string; auditId: string }>> {
+  const rows = await query<ProductRow & { audit_ts: string; audit_id: string }>(
+    `WITH ordered_audit AS (
+       SELECT al.target_id::varchar AS product_id,
+              al.created_at,
+              al.id::text AS audit_id
          FROM ops_audit_log al
-        WHERE al.target_type = 'product'
+        WHERE (al.created_at, al.id::text) > ($1::timestamp, COALESCE($2::text, ''))
+          AND al.target_type = 'product'
           AND al.action_type IN ('update_product')
-          AND al.created_at > $1::timestamp
           AND al.target_id IS NOT NULL
-        GROUP BY al.target_id
+        ORDER BY al.created_at ASC, al.id::text ASC
+        LIMIT $3
+     ),
+     deduped AS (
+       SELECT product_id,
+              MAX(created_at) AS audit_ts,
+              MAX(audit_id)   AS audit_id
+         FROM ordered_audit
+        GROUP BY product_id
      )
      SELECT p.id, p.name, p.synonyms, p.department, p.default_unit,
             p.culture_tags, p.kcal, p.protein, p.carbs, p.fat, p.sodium,
             p.fiber, p.sugar, p.brand, p.allergens, p.ingredients_text,
             p.serving_size, p.branded_food_category,
             p.updated_at::text AS updated_at,
-            fa.max_ts::text AS audit_ts
-       FROM from_audit fa
-       JOIN products p ON p.id = fa.product_id
-      ORDER BY fa.max_ts ASC
-      LIMIT $2`,
-    [cursor.toISOString(), limit]
+            d.audit_ts::text AS audit_ts,
+            d.audit_id       AS audit_id
+       FROM deduped d
+       JOIN products p ON p.id = d.product_id
+      ORDER BY d.audit_ts ASC, d.audit_id ASC`,
+    [cursor.ts.toISOString(), cursor.id, limit]
   );
-  const items = rows.map((r) => ({ row: r, auditTs: r.audit_ts }));
-  const maxAuditTs = items.length ? items[items.length - 1]!.auditTs : null;
-  return { items, maxAuditTs };
+  const items = rows.map((r) => ({ row: r, auditTs: r.audit_ts, auditId: r.audit_id }));
+  const last = items[items.length - 1];
+  return { items, maxAuditTs: last?.auditTs ?? null, maxAuditId: last?.auditId ?? null };
 }
 
-export async function loadDecisionsBatch(cursor: Date, limit = BATCH_SIZE): Promise<LoadedBatch<DecisionRow>> {
+export async function loadDecisionsBatch(cursor: CursorPos, limit = BATCH_SIZE): Promise<LoadedBatch<DecisionRow>> {
   const rows = await query<DecisionRow>(
     `SELECT al.id::text AS audit_id,
             al.created_at::text AS audit_created_at,
@@ -528,15 +570,19 @@ export async function loadDecisionsBatch(cursor: Date, limit = BATCH_SIZE): Prom
             ar.content_id::text AS content_id
        FROM ops_audit_log al
        JOIN abuse_reports ar ON ar.id::text = al.target_id
-      WHERE al.target_type = 'abuse_report'
+      WHERE (al.created_at, al.id::text) > ($1::timestamp, COALESCE($2::text, ''))
+        AND al.target_type = 'abuse_report'
         AND al.action_type IN ('moderation_approved','moderation_bulk_approved')
-        AND al.created_at > $1::timestamp
-      ORDER BY al.created_at ASC
-      LIMIT $2`,
-    [cursor.toISOString(), limit]
+      ORDER BY al.created_at ASC, al.id::text ASC
+      LIMIT $3`,
+    [cursor.ts.toISOString(), cursor.id, limit]
   );
-  const maxAuditTs = rows.length ? rows[rows.length - 1]!.audit_created_at : null;
-  return { items: rows, maxAuditTs };
+  const last = rows[rows.length - 1];
+  return {
+    items: rows,
+    maxAuditTs: last?.audit_created_at ?? null,
+    maxAuditId: last?.audit_id ?? null,
+  };
 }
 
 // ── Per-endpoint pushers ──────────────────────────────────────────────────
@@ -569,7 +615,7 @@ function mergeSummary(a: EndpointSummary, b: EndpointSummary): EndpointSummary {
 
 async function pushEndpoint<TItem>(args: {
   endpoint: Endpoint;
-  load: (cursor: Date) => Promise<LoadedBatch<TItem>>;
+  load: (cursor: CursorPos) => Promise<LoadedBatch<TItem>>;
   toPayload: (items: TItem[]) => unknown;
   toBatchKey: (items: TItem[]) => string;
   opts: PushOpts;
@@ -581,6 +627,7 @@ async function pushEndpoint<TItem>(args: {
   const summary = emptySummary();
   const allResults: PerRowResult[] = [];
   let lastAuditTs: string | null = null;
+  let lastAuditId: string | null = null;
 
   // Single-batch-per-run loop. Spec caps ≤100/batch and the cron runs every
   // 15 min; if a backlog builds, each subsequent run drains another batch.
@@ -588,7 +635,9 @@ async function pushEndpoint<TItem>(args: {
   // too long (default lockMinutes = 60).
   const MAX_BATCHES_PER_RUN = 5;
   for (let batchIdx = 0; batchIdx < MAX_BATCHES_PER_RUN; batchIdx++) {
-    const cursorForBatch = lastAuditTs ? new Date(lastAuditTs) : cursor;
+    const cursorForBatch: CursorPos = lastAuditTs
+      ? { ts: new Date(lastAuditTs), id: lastAuditId }
+      : cursor;
     const batch = await args.load(cursorForBatch);
     if (batch.items.length === 0) break;
 
@@ -638,6 +687,7 @@ async function pushEndpoint<TItem>(args: {
       // Non-fatal: continue draining subsequent batches. Bump in-memory
       // cursor so we don't re-load the same rows in this run's loop.
       lastAuditTs = batch.maxAuditTs;
+      lastAuditId = batch.maxAuditId;
       if (batch.items.length < BATCH_SIZE) break; // drained
       continue;
     }
@@ -652,6 +702,7 @@ async function pushEndpoint<TItem>(args: {
     summary.errors += post.body.summary.errors;
 
     lastAuditTs = batch.maxAuditTs;
+    lastAuditId = batch.maxAuditId;
     if (batch.items.length < BATCH_SIZE) break; // drained
   }
 
@@ -659,11 +710,13 @@ async function pushEndpoint<TItem>(args: {
     // Successful zero-row run: advance the cursor to the run start so
     // the next run doesn't re-scan the 7-day backfill window. Any audit
     // row written DURING this run (after `startedAt`) is still picked
-    // up on the next pass because the cursor is `created_at > $1`.
+    // up on the next pass because the keyset predicate uses `>`. We
+    // null out the audit_id component so any audit row at exactly that
+    // timestamp is included (`> (ts, '')` matches any real id).
     let cursorAdvancedTo: string | undefined;
     if (!args.opts.dryRun) {
       const ts = startedAt.toISOString();
-      await setCursor(args.endpoint, ts);
+      await setCursor(args.endpoint, ts, null);
       cursorAdvancedTo = ts;
     }
     return {
@@ -678,7 +731,7 @@ async function pushEndpoint<TItem>(args: {
   // Cursor advancement (spec point 5): only when summary.errors === 0.
   let cursorAdvancedTo: string | undefined;
   if (!args.opts.dryRun && summary.errors === 0 && lastAuditTs) {
-    await setCursor(args.endpoint, lastAuditTs);
+    await setCursor(args.endpoint, lastAuditTs, lastAuditId);
     cursorAdvancedTo = lastAuditTs;
   }
 
