@@ -40,11 +40,19 @@ export const opsPool = new Pool({
   ssl: parsed.ssl ? { rejectUnauthorized: true } : false,
   max: 5,
   connectionTimeoutMillis: 15000,
-  idleTimeoutMillis: 120000,
+  // Recycle idle clients before the managed Postgres provider closes them
+  // (~90s in production). Previously 120s, which guaranteed every idle client
+  // got reaped by the provider and surfaced as a pool 'error' event.
+  idleTimeoutMillis: 30000,
+  keepAlive: true,
 });
 
 opsPool.on("error", (err) => {
-  logger.warn({ err }, "idle pg client error (opsPool)");
+  // Demoted to debug: with the shorter idleTimeout + keepAlive above the pool
+  // recycles its own clients, but a race with the provider's reaper is still
+  // possible. pg removes the bad client and reconnects on next checkout, so
+  // there's nothing for on-call to do here.
+  logger.debug({ err }, "idle pg client recycled (opsPool)");
 });
 
 export async function query<T = Record<string, unknown>>(
