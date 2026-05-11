@@ -94,6 +94,7 @@ In-process scheduler in `api-server/src/jobs/scheduler.ts`. Currently registered
 | `recipes:nightly` | `0 4 * * *` | Pull next letter from TheMealDB → `imported_recipes_staging` |
 | `wikibooks:weekly` | `0 5 * * 0` | Wikibooks Cookbook scraper (wikitext-based extraction) → staging |
 | `neon:daily` | `0 2 * * *` | Pull upstream NEON reference + user data into local DB |
+| `opsReverseSync:periodic` | `*/15 * * * *` | Push operator-edited rows (recipes, products, moderation decisions) to deployed prod via `/api/admin/ops-sync/*` |
 
 Cron expressions are editable per-job at runtime via System Health → Job Schedules (persisted in `system_flags`, hot-reloaded). Manual triggers, run history, and stale/zombie detection are surfaced in the dashboard.
 
@@ -154,6 +155,8 @@ pnpm --filter @workspace/api-spec run codegen
 | `FDC_API_KEY` | FoodData Central health check | optional |
 | `OBJECT_STORAGE_*` | Replit object storage sidecar | yes (for image uploads) |
 | `ALERT_WEBHOOK_URL` | Outbound alert webhook | optional |
+| `OPS_REVERSE_SYNC_TOKEN` | Bearer token for `opsReverseSync:periodic` POSTs to prod | required for the job (job fails fast otherwise) |
+| `PROD_API_BASE` | Prod API base URL the reverse-sync cron POSTs to (e.g. `https://pickandcook.replit.app`) | required for the job |
 
 ## External services
 
@@ -168,6 +171,8 @@ pnpm --filter @workspace/api-spec run codegen
 **Add a new admin endpoint**: declare in `lib/api-spec/openapi.yaml` → `pnpm --filter @workspace/api-spec run codegen` → implement route in `artifacts/api-server/src/routes/ops/` (use `requireAdminWrite` for mutations) → add Zod validation using the generated schema → consume in dashboard via the generated React Query hook.
 
 **Add a new background job**: create handler in `artifacts/api-server/src/jobs/handlers/` → register in `artifacts/api-server/src/jobs/registry.ts` with default cron → add tests in the same dir → restart api-server.
+
+**Run the reverse-sync cron manually**: `pnpm --filter @workspace/api-server run ops-sync -- --dry-run` (or `--since=ISO`, `--table=recipes|products|moderation-decisions`, `--omit-control-updated-at`). Requires `OPS_REVERSE_SYNC_TOKEN` and `PROD_API_BASE`. The CLI runs once and exits; output is the same JobSummary the cron writes to `job_runs.summary` and per-endpoint detail to `ops_sync_runs`.
 
 **Schema change**: alter Drizzle schema → generate migration → apply to local DB; for production, use the database skill (`environment: "production"`) or the Deployment SQL console.
 

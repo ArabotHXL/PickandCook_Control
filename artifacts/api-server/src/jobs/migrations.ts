@@ -97,3 +97,93 @@ export async function ensureOpsSchema(): Promise<void> {
     [JSON.stringify({ alert_webhook_url: null, alert_webhook_enabled: false })]
   );
 }
+
+/**
+ * Schema bootstrap for the Control → prod reverse-sync cron
+ * (`opsReverseSync:periodic`). Adds:
+ *
+ *  - `recipes.updated_at` and `products.updated_at` columns (these tables
+ *    have always had only `created_at`). The shared `touch_updated_at`
+ *    trigger function bumps the column on every UPDATE so we have an
+ *    honest `controlUpdatedAt` to send to prod's CAS predicate.
+ *  - `ops_sync_cursor`: per-endpoint high-water-mark of the last
+ *    successfully pushed audit-log timestamp. The cursor only advances
+ *    when a push completes with zero per-row errors.
+ *  - `ops_sync_runs`: append-only audit table for every reverse-sync run
+ *    (including dry-runs and zero-row no-ops). Lets System Health prove
+ *    "we ran on time, here's what we sent".
+ *
+ * Safe to call repeatedly. Each statement is `IF NOT EXISTS` or
+ * `CREATE OR REPLACE`.
+ */
+export async function ensureReverseSyncSchema(): Promise<void> {
+  // Shared touch trigger function. CREATE OR REPLACE is idempotent.
+  await query(
+    `CREATE OR REPLACE FUNCTION touch_updated_at() RETURNS trigger
+       LANGUAGE plpgsql AS $$
+     BEGIN
+       NEW.updated_at = NOW();
+       RETURN NEW;
+     END;
+     $$`
+  );
+
+  // recipes.updated_at + trigger
+  await query(`ALTER TABLE recipes ADD COLUMN IF NOT EXISTS updated_at timestamp DEFAULT NOW()`);
+  await query(
+    `DO $$
+     BEGIN
+       IF NOT EXISTS (
+         SELECT 1 FROM pg_trigger WHERE tgname = 'recipes_touch_updated_at'
+       ) THEN
+         CREATE TRIGGER recipes_touch_updated_at
+           BEFORE UPDATE ON recipes
+           FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+       END IF;
+     END
+     $$`
+  );
+
+  // products.updated_at + trigger
+  await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS updated_at timestamp DEFAULT NOW()`);
+  await query(
+    `DO $$
+     BEGIN
+       IF NOT EXISTS (
+         SELECT 1 FROM pg_trigger WHERE tgname = 'products_touch_updated_at'
+       ) THEN
+         CREATE TRIGGER products_touch_updated_at
+           BEFORE UPDATE ON products
+           FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+       END IF;
+     END
+     $$`
+  );
+
+  // Cursor table — endpoint is one of: 'recipes', 'moderation-decisions', 'products'
+  await query(
+    `CREATE TABLE IF NOT EXISTS ops_sync_cursor (
+       endpoint        text PRIMARY KEY,
+       last_pushed_at  timestamp NOT NULL,
+       updated_at      timestamp NOT NULL DEFAULT NOW()
+     )`
+  );
+
+  // Run audit table
+  await query(
+    `CREATE TABLE IF NOT EXISTS ops_sync_runs (
+       id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+       started_at      timestamp NOT NULL,
+       finished_at     timestamp,
+       endpoint        text NOT NULL,
+       status          text NOT NULL,
+       summary         jsonb NOT NULL,
+       sample_results  jsonb,
+       error_message   text
+     )`
+  );
+  await query(
+    `CREATE INDEX IF NOT EXISTS ops_sync_runs_endpoint_started_idx
+       ON ops_sync_runs (endpoint, started_at DESC)`
+  );
+}

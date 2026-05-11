@@ -3,6 +3,7 @@ import { recipesNightly } from "./handlers/recipesNightly.js";
 import { productsNightly } from "./handlers/productsNightly.js";
 import { wikibooksWeekly } from "./handlers/wikibooksWeekly.js";
 import { neonDaily } from "./handlers/neonDaily.js";
+import { opsReverseSync } from "./handlers/opsReverseSync.js";
 
 export interface JobDefinition {
   name: string;
@@ -35,6 +36,12 @@ export const JOB_DEFINITIONS: JobDefinition[] = [
     cronExpr: "0 2 * * *",
     description: "Pull upstream reference + user data from NEON_DATABASE_URL into the local DB (additive, per-table conflict policy)",
     handler: neonDaily,
+  },
+  {
+    name: "opsReverseSync:periodic",
+    cronExpr: "*/15 * * * *",
+    description: "Push operator-approved Control content to deployed prod via /api/admin/ops-sync/{recipes,moderation-decisions,products}",
+    handler: opsReverseSync,
   },
 ];
 
