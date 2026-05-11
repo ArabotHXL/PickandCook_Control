@@ -10,6 +10,7 @@
  */
 import { logger } from "../lib/logger.js";
 import { runReverseSync, type Endpoint, ENDPOINT_ORDER } from "../jobs/handlers/opsReverseSync.js";
+import { ensureReverseSyncSchema } from "../jobs/migrations.js";
 import { opsPool } from "../routes/ops/db.js";
 
 interface CliArgs {
@@ -73,6 +74,10 @@ async function main() {
 
   const endpoints = args.table ? [args.table] : ENDPOINT_ORDER;
   try {
+    // The scheduler normally calls this on api-server boot, but the CLI
+    // can be invoked from a fresh DB / one-off operator host where the
+    // scheduler has never run, so we ensure tables/columns/triggers exist.
+    await ensureReverseSyncSchema();
     const summary = await runReverseSync(ctx, {
       dryRun: args.dryRun,
       since: args.since,

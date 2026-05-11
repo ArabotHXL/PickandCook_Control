@@ -1,4 +1,4 @@
-import { query, queryOne, withTransaction } from "../../routes/ops/db.js";
+import { query, queryOne } from "../../routes/ops/db.js";
 import type { JobContext, JobSummary } from "../runner.js";
 
 /**
@@ -606,13 +606,13 @@ async function pushEndpoint<TItem>(args: {
     });
 
     if (!post.ok) {
-      const finishedAt = new Date();
       args.opts.log.error(
         { endpoint: args.endpoint, status: post.status, message: post.message, fatal: post.fatal },
         "[ops-sync] batch failed"
       );
-      // Mark every item in the failing batch as an error so the cursor
-      // doesn't advance and the next run replays them.
+      // Record one error row per item in the failing batch so the cursor
+      // doesn't advance (cursor only moves when summary.errors === 0) and
+      // the next run replays them. Every prod endpoint is idempotent.
       const errRows: PerRowResult[] = batch.items.map((i) => ({
         id: args.toBatchKey([i]),
         action: "error",
@@ -620,13 +620,26 @@ async function pushEndpoint<TItem>(args: {
       }));
       summary.errors += batch.items.length;
       allResults.push(...errRows);
-      return {
-        endpoint: args.endpoint,
-        status: post.fatal ? "failed" : "partial",
-        summary,
-        results: allResults,
-        errorMessage: `HTTP ${post.status}: ${post.message}`,
-      };
+      // 401/403/503 → stop the whole endpoint (token broken / prod down).
+      // Other 4xx (e.g. 400 from a malformed payload) → log + skip this
+      // batch + advance audit cursor past it for THIS run so the next
+      // batch loop iteration loads later rows. Persistent error rows in
+      // summary keep the persisted cursor pinned so the bad batch is
+      // retried on the next scheduled run (after we've fixed the bug).
+      if (post.fatal) {
+        return {
+          endpoint: args.endpoint,
+          status: "failed",
+          summary,
+          results: allResults,
+          errorMessage: `HTTP ${post.status}: ${post.message}`,
+        };
+      }
+      // Non-fatal: continue draining subsequent batches. Bump in-memory
+      // cursor so we don't re-load the same rows in this run's loop.
+      lastAuditTs = batch.maxAuditTs;
+      if (batch.items.length < BATCH_SIZE) break; // drained
+      continue;
     }
 
     // Merge per-row results from prod's response.
@@ -831,6 +844,3 @@ export async function opsReverseSync(ctx: JobContext): Promise<JobSummary> {
   return runReverseSync(ctx);
 }
 
-// Suppress unused withTransaction import warning — exported for future
-// per-endpoint transactional cursor advancement if we ever need it.
-void withTransaction;
