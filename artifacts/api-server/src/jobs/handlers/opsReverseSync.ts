@@ -655,13 +655,23 @@ async function pushEndpoint<TItem>(args: {
     if (batch.items.length < BATCH_SIZE) break; // drained
   }
 
-  const finishedAt = new Date();
   if (allResults.length === 0) {
+    // Successful zero-row run: advance the cursor to the run start so
+    // the next run doesn't re-scan the 7-day backfill window. Any audit
+    // row written DURING this run (after `startedAt`) is still picked
+    // up on the next pass because the cursor is `created_at > $1`.
+    let cursorAdvancedTo: string | undefined;
+    if (!args.opts.dryRun) {
+      const ts = startedAt.toISOString();
+      await setCursor(args.endpoint, ts);
+      cursorAdvancedTo = ts;
+    }
     return {
       endpoint: args.endpoint,
       status: "no_op",
       summary,
       results: allResults,
+      cursorAdvancedTo,
     };
   }
 
@@ -800,6 +810,18 @@ export async function runReverseSync(ctx: JobContext, runOpts: RunOptions = {}):
       sampleResults: res.results.slice(0, SAMPLE_RESULTS_CAP),
       errorMessage: res.errorMessage,
     });
+    // Run-level fail-fast: a `failed` status means either a fatal HTTP
+    // response (401/403/503 — token broken or prod down) or an unhandled
+    // exception in the pusher. Either way, continuing to subsequent
+    // endpoints would just produce more failures (same token, same prod
+    // base URL) and pollute ops_sync_runs. Abort the run.
+    if (res.status === "failed") {
+      ctx.log.error(
+        { endpoint, errorMessage: res.errorMessage },
+        "[ops-sync] fatal endpoint failure — aborting remaining endpoints"
+      );
+      break;
+    }
   }
 
   const summary: ReverseSyncSummary = {
