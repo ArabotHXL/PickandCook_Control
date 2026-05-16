@@ -1,5 +1,7 @@
 import { query, queryOne } from "../../routes/ops/db.js";
 import type { JobContext, JobSummary } from "../runner.js";
+import { APPROVE_FLOW_MARKER } from "../../routes/ops/recipeDetail.js";
+import { logger as rootLogger } from "../../lib/logger.js";
 
 /**
  * opsReverseSync — push operator-approved Control content to deployed prod.
@@ -324,6 +326,19 @@ export interface RecipePayload {
   qualityTier?: string;
   imageUrl?: string;
   controlUpdatedAt?: string;
+  /** Set to true when the originating audit row carried the
+   *  `[approve-flow]` decision marker (operator-driven Approve action).
+   *  Tells prod to bypass its `origin_locked` guard for this single
+   *  recipe so prod-origin recipes can be rewritten from Control. */
+  forceOverrideOrigin?: boolean;
+}
+
+/** Per-item audit linkage used by pushEndpoint to (1) attach
+ *  `forceOverrideOrigin` to recipe payloads and (2) dead-letter rejected
+ *  rows by their underlying audit_id. */
+export interface AuditMeta {
+  auditId: string;
+  decisionNote: string | null;
 }
 
 /** Map a `recipes` row to the payload shape prod's `/recipes` endpoint accepts.
@@ -480,15 +495,35 @@ export interface LoadedBatch<T> {
  *  joins the deduped recipe ids to current state. The boundary returned is
  *  the LAST row of phase 1 — exactly the (created_at, id) of the audit row
  *  whose consumption defines the cursor advancement. */
-export async function loadRecipesBatch(cursor: CursorPos, limit = BATCH_SIZE): Promise<LoadedBatch<{ row: RecipeRow }>> {
-  const auditRows = await query<{ recipe_id: string | null; created_at: string; audit_id: string }>(
+export interface RecipeBatchItem {
+  row: RecipeRow;
+  /** Audit row linkage for this recipe. When multiple audit rows in this
+   *  batch reference the same recipe id we keep the LATEST one — that's
+   *  the one whose `decision_note` carries the operator's most recent
+   *  intent (e.g. an Approve action), and the one we'll dead-letter
+   *  against on rejection. Older audit rows for the same recipe are
+   *  consumed silently because their state is rolled into the same
+   *  outbound payload. */
+  auditId: string;
+  decisionNote: string | null;
+}
+
+export interface ProductBatchItem {
+  row: ProductRow;
+  auditId: string;
+  decisionNote: string | null;
+}
+
+export async function loadRecipesBatch(cursor: CursorPos, limit = BATCH_SIZE): Promise<LoadedBatch<RecipeBatchItem>> {
+  const auditRows = await query<{ recipe_id: string | null; created_at: string; audit_id: string; decision_note: string | null }>(
     `SELECT
        CASE
          WHEN al.target_type = 'recipe' THEN al.target_id::varchar
          WHEN al.target_type = 'imported_recipe_staging' THEN s.promoted_recipe_id
        END AS recipe_id,
        al.created_at::text AS created_at,
-       al.id::text         AS audit_id
+       al.id::text         AS audit_id,
+       al.decision_note    AS decision_note
      FROM ops_audit_log al
      LEFT JOIN imported_recipes_staging s
        ON s.id::text = al.target_id
@@ -511,9 +546,24 @@ export async function loadRecipesBatch(cursor: CursorPos, limit = BATCH_SIZE): P
   const boundary = last ? { ts: last.created_at, id: last.audit_id } : null;
   if (consumedCount === 0) return { items: [], boundary, consumedCount };
 
-  const ids = Array.from(
-    new Set(auditRows.map((r) => r.recipe_id).filter((x): x is string => Boolean(x)))
-  );
+  // Pick the LATEST audit row per recipe id (auditRows is already ASC by
+  // (created_at, id), so iterating and overwriting keeps the last one).
+  // Also surface any audit row with the approve-flow marker — operators
+  // expect Approve to override even if an automated edit came in after.
+  const auditByRecipe = new Map<string, { auditId: string; decisionNote: string | null }>();
+  for (const r of auditRows) {
+    if (!r.recipe_id) continue;
+    const existing = auditByRecipe.get(r.recipe_id);
+    const isApprove = r.decision_note?.includes(APPROVE_FLOW_MARKER) ?? false;
+    const existingIsApprove = existing?.decisionNote?.includes(APPROVE_FLOW_MARKER) ?? false;
+    // Overwrite unless the existing entry is already an approve and the
+    // new row is not — approve marker must "stick" once seen in this batch.
+    if (!existing || isApprove || !existingIsApprove) {
+      auditByRecipe.set(r.recipe_id, { auditId: r.audit_id, decisionNote: r.decision_note });
+    }
+  }
+
+  const ids = Array.from(auditByRecipe.keys());
   if (ids.length === 0) return { items: [], boundary, consumedCount };
 
   const recipes = await query<RecipeRow>(
@@ -525,14 +575,22 @@ export async function loadRecipesBatch(cursor: CursorPos, limit = BATCH_SIZE): P
       WHERE r.id = ANY($1::varchar[])`,
     [ids]
   );
-  return { items: recipes.map((row) => ({ row })), boundary, consumedCount };
+  return {
+    items: recipes.map((row) => {
+      const meta = auditByRecipe.get(row.id)!;
+      return { row, auditId: meta.auditId, decisionNote: meta.decisionNote };
+    }),
+    boundary,
+    consumedCount,
+  };
 }
 
-export async function loadProductsBatch(cursor: CursorPos, limit = BATCH_SIZE): Promise<LoadedBatch<{ row: ProductRow }>> {
-  const auditRows = await query<{ product_id: string; created_at: string; audit_id: string }>(
+export async function loadProductsBatch(cursor: CursorPos, limit = BATCH_SIZE): Promise<LoadedBatch<ProductBatchItem>> {
+  const auditRows = await query<{ product_id: string; created_at: string; audit_id: string; decision_note: string | null }>(
     `SELECT al.target_id::varchar AS product_id,
             al.created_at::text   AS created_at,
-            al.id::text           AS audit_id
+            al.id::text           AS audit_id,
+            al.decision_note      AS decision_note
        FROM ops_audit_log al
       WHERE (al.created_at, al.id::text) > ($1::timestamp, COALESCE($2::text, ''))
         AND al.target_type = 'product'
@@ -547,7 +605,11 @@ export async function loadProductsBatch(cursor: CursorPos, limit = BATCH_SIZE): 
   const boundary = last ? { ts: last.created_at, id: last.audit_id } : null;
   if (consumedCount === 0) return { items: [], boundary, consumedCount };
 
-  const ids = Array.from(new Set(auditRows.map((r) => r.product_id)));
+  const auditByProduct = new Map<string, { auditId: string; decisionNote: string | null }>();
+  for (const r of auditRows) {
+    auditByProduct.set(r.product_id, { auditId: r.audit_id, decisionNote: r.decision_note });
+  }
+  const ids = Array.from(auditByProduct.keys());
   const products = await query<ProductRow>(
     `SELECT p.id, p.name, p.synonyms, p.department, p.default_unit,
             p.culture_tags, p.kcal, p.protein, p.carbs, p.fat, p.sodium,
@@ -558,7 +620,14 @@ export async function loadProductsBatch(cursor: CursorPos, limit = BATCH_SIZE): 
       WHERE p.id = ANY($1::varchar[])`,
     [ids]
   );
-  return { items: products.map((row) => ({ row })), boundary, consumedCount };
+  return {
+    items: products.map((row) => {
+      const meta = auditByProduct.get(row.id)!;
+      return { row, auditId: meta.auditId, decisionNote: meta.decisionNote };
+    }),
+    boundary,
+    consumedCount,
+  };
 }
 
 export async function loadDecisionsBatch(cursor: CursorPos, limit = BATCH_SIZE): Promise<LoadedBatch<DecisionRow>> {
@@ -620,6 +689,10 @@ async function pushEndpoint<TItem>(args: {
   load: (cursor: CursorPos) => Promise<LoadedBatch<TItem>>;
   toPayload: (items: TItem[]) => unknown;
   toBatchKey: (items: TItem[]) => string;
+  /** Extract audit row id + decision note for a single item. Used to
+   *  dead-letter rejected rows by their underlying audit_id (so the
+   *  operator-driven Retry button can re-POST the exact row that lost). */
+  getAuditMeta: (item: TItem) => AuditMeta;
   opts: PushOpts;
 }): Promise<EndpointRunResult> {
   const startedAt = new Date();
@@ -720,6 +793,62 @@ async function pushEndpoint<TItem>(args: {
     summary.skipped += post.body.summary.skipped;
     summary.errors += post.body.summary.errors;
 
+    // Dead-letter any rows prod skipped for a non-`no_change` reason.
+    // Without this, on the next replay the same losing batch is re-sent
+    // forever — and on a successful skip-only batch, summary.errors === 0
+    // so the cursor advances past the audit row and the rejection is
+    // silently dropped (the original data-loss bug from rec_436).
+    //
+    // `no_change` is the one skip reason that's truly idempotent: prod
+    // already has the same state, so there is nothing to retry.
+    //
+    // We DO NOT touch `summary.errors` here — these are not errors in the
+    // sense of "prod was broken"; the cursor is allowed to advance past
+    // them once they're durably dead-lettered.
+    if (!args.opts.dryRun) {
+      const itemByKey = new Map<string, TItem>();
+      for (const it of batch.items) itemByKey.set(args.toBatchKey([it]), it);
+      for (const r of post.body.results) {
+        if (r.action !== "skipped") continue;
+        if (r.reason === "no_change") continue;
+        const item = itemByKey.get(r.id);
+        if (!item) continue; // result id not from this batch — defensive
+        const meta = args.getAuditMeta(item);
+        try {
+          await query(
+            `INSERT INTO ops_sync_dead_letter
+               (audit_id, endpoint, target_id, reason, sample_response, first_seen_at, retry_count)
+             VALUES ($1, $2, $3, $4, $5::jsonb, NOW(), 0)
+             ON CONFLICT (audit_id, endpoint) DO UPDATE
+               SET retry_count = ops_sync_dead_letter.retry_count + 1,
+                   reason = EXCLUDED.reason,
+                   sample_response = EXCLUDED.sample_response,
+                   last_retried_at = NOW(),
+                   resolved_at = NULL`,
+            [meta.auditId, args.endpoint, r.id, r.reason ?? "unknown_skip", JSON.stringify(r)]
+          );
+        } catch (err) {
+          // Critical: if we can't durably capture the rejection, we MUST
+          // NOT let the cursor advance past it — otherwise we silently
+          // drop the row (the rec_436 bug we're trying to fix). Bump
+          // summary.errors so the `summary.errors === 0` cursor-advance
+          // guard at the bottom of this function fails, and the next run
+          // replays the same audit window (every prod endpoint is
+          // idempotent so re-POSTing is safe).
+          args.opts.log.error(
+            { endpoint: args.endpoint, auditId: meta.auditId, err: err instanceof Error ? err.message : String(err) },
+            "[ops-sync] dead-letter insert failed — pinning cursor for replay"
+          );
+          summary.errors += 1;
+          allResults.push({
+            id: r.id,
+            action: "error",
+            reason: `dead_letter_persist_failed: ${err instanceof Error ? err.message : String(err)}`,
+          });
+        }
+      }
+    }
+
     if (batch.consumedCount < BATCH_SIZE) break; // drained
   }
 
@@ -765,12 +894,27 @@ async function pushEndpoint<TItem>(args: {
   return { endpoint: args.endpoint, status, summary, results: allResults, cursorAdvancedTo };
 }
 
+/** Build a single recipe push payload, attaching `forceOverrideOrigin`
+ *  when the linked audit row carries the approve-flow marker. Exposed
+ *  so the operator-driven dead-letter retry can reuse the exact same
+ *  mapping (otherwise the retry POST and the original POST could disagree
+ *  on the override flag — the one thing that decides whether prod takes
+ *  the row). */
+export function mapRecipeBatchItem(item: RecipeBatchItem): RecipePayload {
+  const p = mapRecipeRow(item.row);
+  if (item.decisionNote && item.decisionNote.includes(APPROVE_FLOW_MARKER)) {
+    p.forceOverrideOrigin = true;
+  }
+  return p;
+}
+
 async function pushRecipes(opts: PushOpts): Promise<EndpointRunResult> {
   return pushEndpoint({
     endpoint: "recipes",
     load: (c) => loadRecipesBatch(c),
-    toPayload: (items) => ({ items: items.map((i) => mapRecipeRow(i.row)) }),
+    toPayload: (items) => ({ items: items.map(mapRecipeBatchItem) }),
     toBatchKey: (items) => items[0]?.row.id ?? "(unknown)",
+    getAuditMeta: (i) => ({ auditId: i.auditId, decisionNote: i.decisionNote }),
     opts,
   });
 }
@@ -783,6 +927,7 @@ async function pushProducts(opts: PushOpts): Promise<EndpointRunResult> {
       products: items.map((i) => mapProductRow(i.row, { omitControlUpdatedAt: opts.omitControlUpdatedAt })),
     }),
     toBatchKey: (items) => items[0]?.row.id ?? "(unknown)",
+    getAuditMeta: (i) => ({ auditId: i.auditId, decisionNote: i.decisionNote }),
     opts,
   });
 }
@@ -795,6 +940,7 @@ async function pushDecisions(opts: PushOpts): Promise<EndpointRunResult> {
       decisions: items.map(mapDecisionRow).filter((d): d is DecisionPayload => d !== null),
     }),
     toBatchKey: (items) => items[0]?.audit_id ?? "(unknown)",
+    getAuditMeta: (i) => ({ auditId: i.audit_id, decisionNote: i.decision_note }),
     opts,
   });
 }
@@ -959,5 +1105,171 @@ async function collectUnknownActionTypes(): Promise<string[]> {
 
 export async function opsReverseSync(ctx: JobContext): Promise<JobSummary> {
   return runReverseSync(ctx);
+}
+
+// ── Dead-letter retry (operator-driven, single row at a time) ─────────────
+
+export interface DeadLetterRetryResult {
+  ok: boolean;
+  resolved: boolean;
+  status?: number;
+  message: string;
+  /** Per-row result from prod, if we got that far. */
+  result?: PerRowResult;
+}
+
+/**
+ * Retry a single dead-letter row. Re-loads the underlying row state
+ * (recipes / products) or audit-joined moderation row, rebuilds the
+ * payload via the same mappers the cron uses, and POSTs it on its own.
+ *
+ *  - On `inserted` / `updated` / `skipped+no_change`: mark resolved_at.
+ *  - On `skipped` (other reason) / `error`: bump retry_count + sample.
+ *  - On HTTP failure: bump retry_count + sample with the HTTP error.
+ *
+ * Fails fast with `OPS_REVERSE_SYNC_TOKEN`/`PROD_API_BASE` unset.
+ */
+export async function retryDeadLetterById(
+  deadLetterId: string,
+  opts?: { fetchImpl?: typeof fetch }
+): Promise<DeadLetterRetryResult> {
+  const token = process.env["OPS_REVERSE_SYNC_TOKEN"];
+  const baseUrl = process.env["PROD_API_BASE"];
+  if (!token) return { ok: false, resolved: false, message: "OPS_REVERSE_SYNC_TOKEN is not set" };
+  if (!baseUrl) return { ok: false, resolved: false, message: "PROD_API_BASE is not set" };
+
+  const dl = await queryOne<{
+    id: string;
+    audit_id: string;
+    endpoint: Endpoint;
+    target_id: string | null;
+    resolved_at: string | null;
+  }>(
+    `SELECT id, audit_id, endpoint::text AS endpoint, target_id, resolved_at::text AS resolved_at
+       FROM ops_sync_dead_letter WHERE id = $1`,
+    [deadLetterId]
+  );
+  if (!dl) return { ok: false, resolved: false, message: "Dead-letter row not found" };
+  if (dl.resolved_at) return { ok: false, resolved: true, message: "Already resolved" };
+
+  const audit = await queryOne<{ decision_note: string | null }>(
+    `SELECT decision_note FROM ops_audit_log WHERE id::text = $1`,
+    [dl.audit_id]
+  );
+  // Missing audit row shouldn't happen but we don't want to crash — surface it.
+  const decisionNote = audit?.decision_note ?? null;
+
+  // Build the payload + URL based on endpoint.
+  let body: unknown;
+  let resultIdHint: string;
+  const url = `${baseUrl.replace(/\/$/, "")}/api/admin/ops-sync/${dl.endpoint}`;
+
+  if (dl.endpoint === "recipes") {
+    if (!dl.target_id) return await markRetryFailure(dl.id, "missing target_id");
+    const row = await queryOne<RecipeRow>(
+      `SELECT r.id, r.title, r.cuisine_tags, r.moods, r.constraints,
+              r.estimated_time_min, r.default_servings, r.difficulty,
+              r.nutrition_summary, r.instructions_summary, r.quality_tier,
+              r.image_url, r.updated_at::text AS updated_at
+         FROM recipes r WHERE r.id = $1`,
+      [dl.target_id]
+    );
+    if (!row) return await markRetryFailure(dl.id, "recipe row no longer exists");
+    const payload = mapRecipeBatchItem({ row, auditId: dl.audit_id, decisionNote });
+    body = { items: [payload] };
+    resultIdHint = row.id;
+  } else if (dl.endpoint === "products") {
+    if (!dl.target_id) return await markRetryFailure(dl.id, "missing target_id");
+    const row = await queryOne<ProductRow>(
+      `SELECT p.id, p.name, p.synonyms, p.department, p.default_unit,
+              p.culture_tags, p.kcal, p.protein, p.carbs, p.fat, p.sodium,
+              p.fiber, p.sugar, p.brand, p.allergens, p.ingredients_text,
+              p.serving_size, p.branded_food_category,
+              p.updated_at::text AS updated_at
+         FROM products p WHERE p.id = $1`,
+      [dl.target_id]
+    );
+    if (!row) return await markRetryFailure(dl.id, "product row no longer exists");
+    body = { products: [mapProductRow(row)] };
+    resultIdHint = row.id;
+  } else {
+    // moderation-decisions — rebuild from audit + abuse_reports join.
+    const row = await queryOne<DecisionRow>(
+      `SELECT al.id::text AS audit_id,
+              al.created_at::text AS audit_created_at,
+              al.action_type,
+              al.decision_note,
+              al.admin_user_id,
+              ar.content_type,
+              ar.content_id::text AS content_id
+         FROM ops_audit_log al
+         JOIN abuse_reports ar ON ar.id::text = al.target_id
+        WHERE al.id::text = $1`,
+      [dl.audit_id]
+    );
+    if (!row) return await markRetryFailure(dl.id, "audit/report join no longer resolves");
+    const decision = mapDecisionRow(row);
+    if (!decision) return await markRetryFailure(dl.id, "decision content_type not pushable");
+    body = { decisions: [decision] };
+    resultIdHint = row.audit_id;
+  }
+
+  const post = await postBatch({ url, token, body, fetchImpl: opts?.fetchImpl });
+  if (!post.ok) {
+    return await markRetryFailure(dl.id, `HTTP ${post.status ?? "?"}: ${post.message}`, { status: post.status });
+  }
+
+  const r = post.body.results.find((x) => x.id === resultIdHint) ?? post.body.results[0];
+  const accepted =
+    r &&
+    (r.action === "inserted" ||
+      r.action === "updated" ||
+      (r.action === "skipped" && r.reason === "no_change"));
+  if (accepted) {
+    await query(
+      `UPDATE ops_sync_dead_letter
+          SET resolved_at = NOW(),
+              last_retried_at = NOW(),
+              retry_count = retry_count + 1,
+              sample_response = $2::jsonb
+        WHERE id = $1`,
+      [dl.id, JSON.stringify(r)]
+    );
+    return { ok: true, resolved: true, message: `accepted as ${r.action}`, result: r };
+  }
+  await query(
+    `UPDATE ops_sync_dead_letter
+        SET last_retried_at = NOW(),
+            retry_count = retry_count + 1,
+            reason = $2,
+            sample_response = $3::jsonb
+      WHERE id = $1`,
+    [dl.id, r?.reason ?? "unknown_skip", JSON.stringify(r ?? post.body)]
+  );
+  return { ok: false, resolved: false, message: `rejected: ${r?.reason ?? "unknown"}`, result: r };
+}
+
+async function markRetryFailure(
+  id: string,
+  message: string,
+  extra?: { status?: number }
+): Promise<DeadLetterRetryResult> {
+  try {
+    await query(
+      `UPDATE ops_sync_dead_letter
+          SET last_retried_at = NOW(),
+              retry_count = retry_count + 1,
+              reason = $2,
+              sample_response = $3::jsonb
+        WHERE id = $1`,
+      [id, message.slice(0, 200), JSON.stringify({ error: message, status: extra?.status ?? null })]
+    );
+  } catch (err) {
+    rootLogger.error(
+      { err: err instanceof Error ? err.message : String(err) },
+      "[ops-sync] failed to update dead-letter row after retry failure"
+    );
+  }
+  return { ok: false, resolved: false, message, status: extra?.status };
 }
 

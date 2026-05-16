@@ -10,7 +10,7 @@
  */
 import { logger } from "../lib/logger.js";
 import { runReverseSync, type Endpoint, ENDPOINT_ORDER } from "../jobs/handlers/opsReverseSync.js";
-import { ensureReverseSyncSchema } from "../jobs/migrations.js";
+import { ensureReverseSyncSchema, ensureDeadLetterSchema } from "../jobs/migrations.js";
 import { opsPool } from "../routes/ops/db.js";
 
 interface CliArgs {
@@ -78,6 +78,10 @@ async function main() {
     // can be invoked from a fresh DB / one-off operator host where the
     // scheduler has never run, so we ensure tables/columns/triggers exist.
     await ensureReverseSyncSchema();
+    // Dead-letter table must exist before pushEndpoint runs — otherwise
+    // INSERTs fail and we'd pin the cursor with `dead_letter_persist_failed`
+    // errors on every CLI invocation. Idempotent CREATE IF NOT EXISTS.
+    await ensureDeadLetterSchema();
     const summary = await runReverseSync(ctx, {
       dryRun: args.dryRun,
       since: args.since,

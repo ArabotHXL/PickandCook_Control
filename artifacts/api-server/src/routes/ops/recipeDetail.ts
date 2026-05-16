@@ -1,7 +1,20 @@
 import type { Request, Response } from "express";
-import { query, queryOne } from "./db.js";
+import { query, queryOne, withTransaction } from "./db.js";
 import { writeAuditLog } from "./audit.js";
 import type { AdminPayload } from "./auth.js";
+
+/** Marker the reverse-sync handler looks for in `ops_audit_log.decision_note`
+ *  to set `forceOverrideOrigin: true` on outbound recipe push rows.
+ *  Public so the test and reverse-sync handler can share the literal. */
+export const APPROVE_FLOW_MARKER = "[approve-flow]";
+
+/** Minimum trimmed length for `instructions_summary` to count as "real".
+ *  Recipes shorter than this can't be approved — they're almost certainly
+ *  scraper stubs ("See source.", empty strings, etc.). */
+const MIN_INSTRUCTIONS_SUMMARY_CHARS = 40;
+/** Per-step text length cap to keep payloads sane. */
+const MAX_STEP_CHARS = 2000;
+const MAX_STEPS_PER_RECIPE = 60;
 
 function getAdmin(req: Request): AdminPayload {
   return (req as Request & { adminUser: AdminPayload }).adminUser;
@@ -30,6 +43,7 @@ interface RecipeRow {
   quality_issues: unknown;
   required_quantities: unknown;
   default_servings: number | null;
+  instructions_steps: unknown;
   created_at: string;
 }
 
@@ -57,8 +71,30 @@ function rowToDto(r: RecipeRow): Record<string, unknown> {
     qualityIssues: r.quality_issues ?? [],
     requiredQuantities: r.required_quantities ?? {},
     defaultServings: r.default_servings,
+    instructionsSteps: Array.isArray(r.instructions_steps) ? r.instructions_steps : [],
     createdAt: r.created_at,
   };
+}
+
+/** Validate an incoming `instructionsSteps` field. Returns the normalized
+ *  array on success or an error message on failure. */
+function validateInstructionsSteps(value: unknown): { steps: string[] } | { error: string } {
+  if (!Array.isArray(value)) return { error: "instructionsSteps must be an array" };
+  if (value.length > MAX_STEPS_PER_RECIPE) {
+    return { error: `instructionsSteps must have at most ${MAX_STEPS_PER_RECIPE} steps` };
+  }
+  const steps: string[] = [];
+  for (let i = 0; i < value.length; i++) {
+    const v = value[i];
+    if (typeof v !== "string") return { error: `instructionsSteps[${i}] must be a string` };
+    const trimmed = v.trim();
+    if (!trimmed) return { error: `instructionsSteps[${i}] must be non-empty` };
+    if (trimmed.length > MAX_STEP_CHARS) {
+      return { error: `instructionsSteps[${i}] exceeds ${MAX_STEP_CHARS} characters` };
+    }
+    steps.push(trimmed);
+  }
+  return { steps };
 }
 
 const EDITABLE_FIELDS: Record<string, string> = {
@@ -85,6 +121,7 @@ const EDITABLE_JSONB: Record<string, string> = {
   optionalIngredientIds: "optional_ingredient_ids",
   requiredQuantities: "required_quantities",
   nutritionSummary: "nutrition_summary",
+  instructionsSteps: "instructions_steps",
 };
 
 async function snapshotRevision(opts: {
@@ -161,6 +198,20 @@ export async function updateRecipe(req: Request, res: Response): Promise<void> {
   }
   for (const [bodyKey, dbCol] of Object.entries(EDITABLE_JSONB)) {
     if (bodyKey in body) {
+      // instructionsSteps gets dedicated validation — reject malformed payloads
+      // up-front so we don't persist `[null, 7, ""]` style garbage and so the
+      // dashboard can show a useful error.
+      if (bodyKey === "instructionsSteps") {
+        const result = validateInstructionsSteps(body[bodyKey]);
+        if ("error" in result) {
+          res.status(400).json({ error: result.error });
+          return;
+        }
+        sets.push(`${dbCol} = $${pi++}::jsonb`);
+        params.push(JSON.stringify(result.steps));
+        changedFields.push(bodyKey);
+        continue;
+      }
       sets.push(`${dbCol} = $${pi++}::jsonb`);
       params.push(JSON.stringify(body[bodyKey] ?? null));
       changedFields.push(bodyKey);
@@ -296,6 +347,140 @@ export async function restoreRecipeRevision(req: Request, res: Response): Promis
   });
 
   res.json({ ok: true });
+}
+
+// ── Approve catalog recipe (task #31) ─────────────────────────────────────
+
+/**
+ * Approve a catalog recipe for publication on prod.
+ *
+ * This is the Control-side counterpart to the `forceOverrideOrigin` flag
+ * downstream: a prod-origin recipe (id like `rec_NNN`, sourced from prod's
+ * own backfill) is normally rejected by the reverse-sync endpoint with
+ * `origin_locked` because prod assumes its own data is authoritative.
+ * After an operator approves it here, the next reverse-sync pass picks
+ * up the `[approve-flow]` decision note on the audit row and forwards
+ * the payload with the override flag set, so prod accepts the rewrite.
+ *
+ * Validations:
+ *  - title trimmed and non-empty
+ *  - image_url present
+ *  - ≥ 1 required ingredient
+ *  - ≥ 1 instruction step
+ *  - instructions_summary trimmed length ≥ MIN_INSTRUCTIONS_SUMMARY_CHARS
+ *  - quality_issues array empty (operator must resolve them first)
+ *
+ * Side effects (one transaction):
+ *  1. Snapshot a `recipe_revisions` row tagged "pre-approve".
+ *  2. UPDATE recipes SET quality_tier='acceptable', quality_issues='[]'.
+ *  3. Write two `ops_audit_log` rows (update_recipe + set_recipe_quality)
+ *     with `decision_note` containing the `[approve-flow]` marker so the
+ *     reverse-sync worker routes both via the forceOverrideOrigin path.
+ *
+ * Returns 422 with `{ error, validationErrors: string[] }` when the recipe
+ * fails the pre-flight checks so the dashboard can show a clear list.
+ */
+export async function approveRecipe(req: Request, res: Response): Promise<void> {
+  const { recipeId } = req.params;
+  const admin = getAdmin(req);
+  const body = (req.body ?? {}) as { note?: unknown };
+  const note =
+    typeof body.note === "string" && body.note.trim() ? body.note.trim().slice(0, 500) : "";
+
+  const current = await queryOne<RecipeRow>(
+    `SELECT * FROM recipes WHERE id = $1`,
+    [recipeId]
+  );
+  if (!current) {
+    res.status(404).json({ error: "Recipe not found" });
+    return;
+  }
+
+  const validationErrors: string[] = [];
+  if (!current.title || !current.title.trim()) {
+    validationErrors.push("Title is required");
+  }
+  if (!current.image_url) {
+    validationErrors.push("Image is required");
+  }
+  const requiredIds = Array.isArray(current.required_ingredient_ids)
+    ? (current.required_ingredient_ids as unknown[])
+    : [];
+  if (requiredIds.length < 1) {
+    validationErrors.push("At least one required ingredient is required");
+  }
+  const steps = Array.isArray(current.instructions_steps)
+    ? (current.instructions_steps as unknown[])
+    : [];
+  if (steps.length < 1) {
+    validationErrors.push("At least one instruction step is required");
+  }
+  const summary = (current.instructions_summary ?? "").trim();
+  if (summary.length < MIN_INSTRUCTIONS_SUMMARY_CHARS) {
+    validationErrors.push(
+      `Instructions summary must be at least ${MIN_INSTRUCTIONS_SUMMARY_CHARS} characters`
+    );
+  }
+  const qualityIssues = Array.isArray(current.quality_issues)
+    ? (current.quality_issues as unknown[])
+    : [];
+  if (qualityIssues.length > 0) {
+    validationErrors.push("Resolve all quality issues before approving");
+  }
+  if (validationErrors.length > 0) {
+    res.status(422).json({ error: "Recipe not ready for approval", validationErrors });
+    return;
+  }
+
+  const previousTier = current.quality_tier;
+  const decisionNote = note
+    ? `${APPROVE_FLOW_MARKER} ${note}`
+    : `${APPROVE_FLOW_MARKER} approved by operator`;
+
+  // Snapshot BEFORE the mutation — outside the transaction is fine; if the
+  // tx rolls back the orphan revision is harmless and matches the existing
+  // updateRecipe pattern (which also snapshots outside the UPDATE).
+  await snapshotRevision({
+    recipeId: String(recipeId),
+    recipeKind: "official",
+    snapshot: rowToDto(current),
+    adminUserId: admin.userId,
+    note: "pre-approve",
+  });
+
+  await withTransaction(async (tx) => {
+    await tx.query(
+      `UPDATE recipes
+          SET quality_tier = 'acceptable',
+              quality_issues = '[]'::jsonb
+        WHERE id = $1`,
+      [recipeId]
+    );
+    // Two audit rows: one for the recipe push, one for the quality tier
+    // change. Reverse-sync routes update_recipe AND set_recipe_quality to
+    // the recipes endpoint, so prod sees both via a single deduped push;
+    // they share the marker so either alone is enough to flip the override.
+    await tx.query(
+      `INSERT INTO ops_audit_log
+         (admin_user_id, action_type, target_type, target_id, old_value, new_value, decision_note)
+       VALUES ($1, 'update_recipe', 'recipe', $2, NULL, $3::jsonb, $4)`,
+      [admin.userId, recipeId, JSON.stringify({ approved: true }), decisionNote]
+    );
+    await tx.query(
+      `INSERT INTO ops_audit_log
+         (admin_user_id, action_type, target_type, target_id, old_value, new_value, decision_note)
+       VALUES ($1, 'set_recipe_quality', 'recipe', $2, $3::jsonb, $4::jsonb, $5)`,
+      [
+        admin.userId,
+        recipeId,
+        JSON.stringify({ qualityTier: previousTier }),
+        JSON.stringify({ qualityTier: "acceptable" }),
+        decisionNote,
+      ]
+    );
+  });
+
+  res.json({ ok: true, qualityTier: "acceptable" });
 }
 
 // ── User-Created Recipe Detail ────────────────────────────────────────────

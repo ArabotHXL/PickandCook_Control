@@ -1,7 +1,7 @@
 import cron, { type ScheduledTask } from "node-cron";
 import { JOB_DEFINITIONS } from "./registry.js";
 import { runJob } from "./runner.js";
-import { ensureJobSchema, ensureOpsSchema, ensureReverseSyncSchema } from "./migrations.js";
+import { ensureJobSchema, ensureOpsSchema, ensureReverseSyncSchema, ensureDeadLetterSchema } from "./migrations.js";
 import { logger } from "../lib/logger.js";
 import { query } from "../routes/ops/db.js";
 import { validateCronPolicy } from "../lib/cronPolicy.js";
@@ -115,6 +115,9 @@ export function startScheduler(): void {
   });
   ensureReverseSyncSchema().catch((err) => {
     logger.error({ err }, "[worker] ensureReverseSyncSchema failed (opsReverseSync may not function)");
+  });
+  ensureDeadLetterSchema().catch((err) => {
+    logger.error({ err }, "[worker] ensureDeadLetterSchema failed (reverse-sync dead-letter inserts will fail)");
   });
 
   // Load DB overrides, then schedule each job with the effective cron.

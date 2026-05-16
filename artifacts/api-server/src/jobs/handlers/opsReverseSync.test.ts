@@ -4,13 +4,16 @@ import {
   ENDPOINT_ORDER,
   classifyAction,
   mapRecipeRow,
+  mapRecipeBatchItem,
   mapProductRow,
   mapDecisionRow,
   postBatch,
   type RecipeRow,
   type ProductRow,
   type DecisionRow,
+  type RecipeBatchItem,
 } from "./opsReverseSync.js";
+import { APPROVE_FLOW_MARKER } from "../../routes/ops/recipeDetail.js";
 
 describe("classifyAction / AUDIT_TO_ENDPOINT", () => {
   it("routes recipe edits to recipes endpoint", () => {
@@ -291,6 +294,60 @@ describe("postBatch", () => {
     expect((init.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
     expect(init.method).toBe("POST");
     expect(init.body).toBe(JSON.stringify({ items: [1] }));
+  });
+});
+
+describe("mapRecipeBatchItem (approve-flow → forceOverrideOrigin plumbing)", () => {
+  const row: RecipeRow = {
+    id: "rec_436",
+    title: "Approved by ops",
+    cuisine_tags: [],
+    moods: [],
+    constraints: [],
+    estimated_time_min: 15,
+    default_servings: 2,
+    difficulty: "Easy",
+    nutrition_summary: null,
+    instructions_summary: "Mix and serve.",
+    quality_tier: "acceptable",
+    image_url: "https://example.com/x.jpg",
+    updated_at: "2026-05-15T00:00:00.000Z",
+  };
+
+  it("sets forceOverrideOrigin when decisionNote contains the marker", () => {
+    const item: RecipeBatchItem = {
+      row,
+      auditId: "a-1",
+      decisionNote: `${APPROVE_FLOW_MARKER} approved by operator`,
+    };
+    const p = mapRecipeBatchItem(item);
+    expect(p.forceOverrideOrigin).toBe(true);
+    expect(p.id).toBe("rec_436");
+    expect(p.qualityTier).toBe("acceptable");
+  });
+
+  it("recognizes the marker when embedded inside a longer note", () => {
+    const item: RecipeBatchItem = {
+      row,
+      auditId: "a-2",
+      decisionNote: `pre-edit: ${APPROVE_FLOW_MARKER} reviewer confirmed image`,
+    };
+    expect(mapRecipeBatchItem(item).forceOverrideOrigin).toBe(true);
+  });
+
+  it("does NOT set forceOverrideOrigin for ordinary edits (so we don't blanket-override prod)", () => {
+    const item: RecipeBatchItem = {
+      row,
+      auditId: "a-3",
+      decisionNote: "fixed typo in title",
+    };
+    expect(mapRecipeBatchItem(item).forceOverrideOrigin).toBeUndefined();
+  });
+
+  it("does NOT set forceOverrideOrigin when decisionNote is null", () => {
+    expect(
+      mapRecipeBatchItem({ row, auditId: "a-4", decisionNote: null }).forceOverrideOrigin
+    ).toBeUndefined();
   });
 });
 

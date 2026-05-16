@@ -34,7 +34,9 @@ import {
   listRecipeRevisions,
   restoreRecipeRevision,
   getUserRecipeDetail,
+  approveRecipe,
 } from "./recipeDetail.js";
+import { listDeadLetter, retryDeadLetter } from "./reverseSync.js";
 import { listModeration, decideModeration, bulkDecideModeration } from "./moderation.js";
 import { listAnalyticsEvents, getAnalyticsSummary } from "./analytics.js";
 import {
@@ -140,6 +142,7 @@ export function registerOpsRoutes(app: Express): void {
   app.get("/api/ops/recipes/:recipeId", requireAdmin, getRecipeDetail);
   app.patch("/api/ops/recipes/:recipeId", requireAdminWrite, updateRecipe);
   app.patch("/api/ops/recipes/:recipeId/quality", requireAdminWrite, setRecipeQuality);
+  app.post("/api/ops/recipes/:recipeId/approve", requireAdminWrite, approveRecipe);
 
   // ── Moderation ────────────────────────────────────────────────────────────
   app.get("/api/ops/moderation", requireAdmin, listModeration);
@@ -187,6 +190,9 @@ export function registerOpsRoutes(app: Express): void {
   app.get("/api/ops/system/flags", requireAdmin, listFlags);
   app.patch("/api/ops/system/flags/:scopeId", requireAdminWrite, updateFlag);
   app.post("/api/ops/system/alerts/test", requireAdminWrite, sendTestAlert);
+  // Reverse-sync operational surface (task #31).
+  app.get("/api/ops/system/reverse-sync/dead-letter", requireAdmin, listDeadLetter);
+  app.post("/api/ops/system/reverse-sync/dead-letter/:id/retry", requireAdminWrite, retryDeadLetter);
 
   // ── Audit ─────────────────────────────────────────────────────────────────
   app.get("/api/ops/audit", requireAdmin, listAuditLog);

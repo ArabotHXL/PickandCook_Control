@@ -7,6 +7,7 @@ import { Search, CheckCircle, XCircle, ChevronLeft, ChevronRight, Eye } from "lu
 import { cn } from "@/lib/utils";
 import { UserCreatedRecipeModal } from "@/components/UserCreatedRecipeModal";
 import { useToast } from "@/hooks/use-toast";
+import { isProdOriginRecipe } from "@/lib/recipeOrigin";
 import { ExportMenu } from "@/components/ExportMenu";
 import { SortableHeader } from "@/components/SortableHeader";
 import { useSort } from "@/hooks/useSort";
@@ -158,7 +159,7 @@ export function RecipesPage() {
                   ) : (recipesQuery.data?.recipes ?? []).length === 0 ? (
                     <tr><td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">No recipes found</td></tr>
                   ) : (
-                    (recipesQuery.data?.recipes ?? []).map((r: { id: string; title: string; qualityTier: string; difficulty: string; estimatedTimeMin: number }) => (
+                    (recipesQuery.data?.recipes ?? []).map((r: { id: string; title: string; qualityTier: string; difficulty: string; estimatedTimeMin: number; sourceUrl?: string | null }) => (
                       <tr key={r.id} className="hover:bg-muted/30 transition-colors" data-testid={`row-recipe-${r.id}`}>
                         <td className="px-4 py-3 font-medium text-foreground max-w-sm truncate">
                           <Link
@@ -168,6 +169,15 @@ export function RecipesPage() {
                           >
                             {r.title}
                           </Link>
+                          {isProdOriginRecipe({ id: r.id, sourceUrl: r.sourceUrl ?? null }) && (
+                            <span
+                              className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-800 border border-amber-200 align-middle"
+                              title="Prod-origin recipe"
+                              data-testid={`badge-prod-origin-${r.id}`}
+                            >
+                              prod
+                            </span>
+                          )}
                         </td>
                         <td className="px-4 py-3">
                           <span className={cn("px-1.5 py-0.5 rounded text-xs font-medium", TIER_BADGE[r.qualityTier] ?? "bg-muted")}>{r.qualityTier ?? "unrated"}</span>

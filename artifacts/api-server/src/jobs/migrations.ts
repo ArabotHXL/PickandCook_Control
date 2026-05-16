@@ -195,3 +195,47 @@ export async function ensureReverseSyncSchema(): Promise<void> {
        ON ops_sync_runs (endpoint, started_at DESC)`
   );
 }
+
+/**
+ * Schema bootstrap for the dead-letter surface added with the
+ * "Approve catalog recipe" flow (task #31).
+ *
+ * Audit rows that prod rejected with a non-`no_change` skip reason (most
+ * notably `origin_locked` on prod-origin recipes) are dropped here so the
+ * reverse-sync cursor doesn't keep replaying the same losing batch forever.
+ * The operator-driven Retry button re-POSTs the single audit row to prod
+ * on the spot.
+ *
+ *  - `audit_id` is the `ops_audit_log.id` text representation.
+ *  - `endpoint` is one of the three reverse-sync targets.
+ *  - `(audit_id, endpoint)` is unique: if the same audit row is rejected
+ *    on multiple runs (cursor replay before we dead-lettered it, or a
+ *    failed retry), we UPSERT with retry_count++.
+ *  - `resolved_at` is set when a Retry succeeds; resolved rows stay in
+ *    the table for forensic history but are filtered out of the UI list.
+ */
+export async function ensureDeadLetterSchema(): Promise<void> {
+  await query(
+    `CREATE TABLE IF NOT EXISTS ops_sync_dead_letter (
+       id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+       audit_id        text NOT NULL,
+       endpoint        text NOT NULL,
+       target_id       text,
+       reason          text,
+       sample_response jsonb,
+       first_seen_at   timestamp NOT NULL DEFAULT NOW(),
+       last_retried_at timestamp,
+       retry_count     integer NOT NULL DEFAULT 0,
+       resolved_at     timestamp
+     )`
+  );
+  await query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS ops_sync_dead_letter_audit_endpoint_uniq
+       ON ops_sync_dead_letter (audit_id, endpoint)`
+  );
+  await query(
+    `CREATE INDEX IF NOT EXISTS ops_sync_dead_letter_unresolved_idx
+       ON ops_sync_dead_letter (endpoint, first_seen_at DESC)
+       WHERE resolved_at IS NULL`
+  );
+}
