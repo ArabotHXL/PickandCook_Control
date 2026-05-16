@@ -8,6 +8,35 @@ import type { AdminPayload } from "./auth.js";
  *  Public so the test and reverse-sync handler can share the literal. */
 export const APPROVE_FLOW_MARKER = "[approve-flow]";
 
+/**
+ * Pure validator that mirrors the dashboard's ApproveButton blockers — the
+ * API is the source of truth, so a 422 from `/approve` carries the same
+ * messages the operator sees inline. Exported for unit tests.
+ */
+export function validateRecipeForApproval(r: {
+  title?: string | null;
+  image_url?: string | null;
+  required_ingredient_ids?: unknown;
+  instructions_steps?: unknown;
+  instructions_summary?: string | null;
+  quality_issues?: unknown;
+}): string[] {
+  const errs: string[] = [];
+  if (!r.title || !r.title.trim()) errs.push("Title is required");
+  if (!r.image_url) errs.push("Image is required");
+  const required = Array.isArray(r.required_ingredient_ids) ? r.required_ingredient_ids : [];
+  if (required.length < 1) errs.push("At least one required ingredient is required");
+  const steps = Array.isArray(r.instructions_steps) ? r.instructions_steps : [];
+  if (steps.length < 1) errs.push("At least one instruction step is required");
+  const summary = (r.instructions_summary ?? "").trim();
+  if (summary.length < MIN_INSTRUCTIONS_SUMMARY_CHARS) {
+    errs.push(`Instructions summary must be at least ${MIN_INSTRUCTIONS_SUMMARY_CHARS} characters`);
+  }
+  const issues = Array.isArray(r.quality_issues) ? r.quality_issues : [];
+  if (issues.length > 0) errs.push("Resolve all quality issues before approving");
+  return errs;
+}
+
 /** Minimum trimmed length for `instructions_summary` to count as "real".
  *  Recipes shorter than this can't be approved — they're almost certainly
  *  scraper stubs ("See source.", empty strings, etc.). */
@@ -77,8 +106,8 @@ function rowToDto(r: RecipeRow): Record<string, unknown> {
 }
 
 /** Validate an incoming `instructionsSteps` field. Returns the normalized
- *  array on success or an error message on failure. */
-function validateInstructionsSteps(value: unknown): { steps: string[] } | { error: string } {
+ *  array on success or an error message on failure. Exported for unit tests. */
+export function validateInstructionsSteps(value: unknown): { steps: string[] } | { error: string } {
   if (!Array.isArray(value)) return { error: "instructionsSteps must be an array" };
   if (value.length > MAX_STEPS_PER_RECIPE) {
     return { error: `instructionsSteps must have at most ${MAX_STEPS_PER_RECIPE} steps` };
@@ -110,7 +139,7 @@ const EDITABLE_FIELDS: Record<string, string> = {
   sourceUrl: "source_url",
 };
 
-const EDITABLE_JSONB: Record<string, string> = {
+export const EDITABLE_JSONB: Record<string, string> = {
   cuisineTags: "cuisine_tags",
   moods: "moods",
   constraints: "constraints",
@@ -396,37 +425,7 @@ export async function approveRecipe(req: Request, res: Response): Promise<void> 
     return;
   }
 
-  const validationErrors: string[] = [];
-  if (!current.title || !current.title.trim()) {
-    validationErrors.push("Title is required");
-  }
-  if (!current.image_url) {
-    validationErrors.push("Image is required");
-  }
-  const requiredIds = Array.isArray(current.required_ingredient_ids)
-    ? (current.required_ingredient_ids as unknown[])
-    : [];
-  if (requiredIds.length < 1) {
-    validationErrors.push("At least one required ingredient is required");
-  }
-  const steps = Array.isArray(current.instructions_steps)
-    ? (current.instructions_steps as unknown[])
-    : [];
-  if (steps.length < 1) {
-    validationErrors.push("At least one instruction step is required");
-  }
-  const summary = (current.instructions_summary ?? "").trim();
-  if (summary.length < MIN_INSTRUCTIONS_SUMMARY_CHARS) {
-    validationErrors.push(
-      `Instructions summary must be at least ${MIN_INSTRUCTIONS_SUMMARY_CHARS} characters`
-    );
-  }
-  const qualityIssues = Array.isArray(current.quality_issues)
-    ? (current.quality_issues as unknown[])
-    : [];
-  if (qualityIssues.length > 0) {
-    validationErrors.push("Resolve all quality issues before approving");
-  }
+  const validationErrors = validateRecipeForApproval(current);
   if (validationErrors.length > 0) {
     res.status(422).json({ error: "Recipe not ready for approval", validationErrors });
     return;

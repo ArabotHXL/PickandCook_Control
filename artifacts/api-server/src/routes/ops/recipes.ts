@@ -61,9 +61,10 @@ export async function listRecipes(req: Request, res: Response): Promise<void> {
       quality_issues: unknown;
       difficulty: string;
       estimated_time_min: number;
+      source_url: string | null;
       created_at: string;
     }>(
-      `SELECT id, title, quality_tier, quality_issues, difficulty, estimated_time_min, created_at
+      `SELECT id, title, quality_tier, quality_issues, difficulty, estimated_time_min, source_url, created_at
        FROM recipes r
        ${where}
        ${orderBy}
@@ -83,6 +84,7 @@ export async function listRecipes(req: Request, res: Response): Promise<void> {
     qualityIssues: Array.isArray(r.quality_issues) ? r.quality_issues : [],
     difficulty: r.difficulty,
     estimatedTimeMin: r.estimated_time_min,
+    sourceUrl: r.source_url,
     createdAt: r.created_at,
   }));
 

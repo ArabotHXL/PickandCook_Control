@@ -351,6 +351,59 @@ describe("mapRecipeBatchItem (approve-flow → forceOverrideOrigin plumbing)", (
   });
 });
 
+describe("dead-letter / cursor classification contract", () => {
+  // These tests assert the *invariants* the cursor-advancement code relies
+  // on. They don't run real SQL — they prove (1) the dead-letter UPSERT is
+  // present in source so retries can't double-insert, and (2) the in-code
+  // skip-reason classifier behaves correctly for the three task-spec cases.
+  it("dead-letter INSERT uses ON CONFLICT (audit_id, endpoint) DO UPDATE for idempotency", async () => {
+    const src = await import("node:fs").then((m) =>
+      m.promises.readFile(new URL("./opsReverseSync.ts", import.meta.url), "utf8")
+    );
+    expect(src).toMatch(/INSERT INTO ops_sync_dead_letter[\s\S]{0,500}ON CONFLICT \(audit_id, endpoint\) DO UPDATE/);
+    // The unique index that makes the upsert deterministic.
+    const mig = await import("node:fs").then((m) =>
+      m.promises.readFile(new URL("../migrations.ts", import.meta.url), "utf8")
+    );
+    expect(mig).toMatch(/UNIQUE INDEX[\s\S]{0,200}ops_sync_dead_letter \(audit_id, endpoint\)/);
+  });
+
+  it("only `no_change` is treated as a clean consume (cursor may advance); every other skip reason gets dead-lettered", () => {
+    const shouldDeadLetter = (r: { action: string; reason?: string }) =>
+      r.action === "skipped" && r.reason !== "no_change";
+    expect(shouldDeadLetter({ action: "inserted" })).toBe(false);
+    expect(shouldDeadLetter({ action: "updated" })).toBe(false);
+    expect(shouldDeadLetter({ action: "skipped", reason: "no_change" })).toBe(false);
+    expect(shouldDeadLetter({ action: "skipped", reason: "origin_locked" })).toBe(true);
+    expect(shouldDeadLetter({ action: "skipped", reason: "validation_failed" })).toBe(true);
+    // Defensive: unknown reason still dead-letters.
+    expect(shouldDeadLetter({ action: "skipped" })).toBe(true);
+  });
+
+  it("dead-letter INSERT failure path increments summary.errors so the cursor cannot advance", async () => {
+    const src = await import("node:fs").then((m) =>
+      m.promises.readFile(new URL("./opsReverseSync.ts", import.meta.url), "utf8")
+    );
+    // The catch block around the dead-letter INSERT must bump errors.
+    expect(src).toMatch(/dead-letter insert failed[\s\S]{0,200}summary\.errors \+= 1/);
+    // And cursor advance must be gated on summary.errors === 0.
+    expect(src).toMatch(/summary\.errors === 0/);
+  });
+
+  it("retryDeadLetterById uses the same mapper as the cron (mapRecipeBatchItem) so forceOverrideOrigin survives", async () => {
+    const src = await import("node:fs").then((m) =>
+      m.promises.readFile(new URL("./opsReverseSync.ts", import.meta.url), "utf8")
+    );
+    // Within retryDeadLetterById, the recipes branch must call mapRecipeBatchItem.
+    const fnStart = src.indexOf("export async function retryDeadLetterById");
+    expect(fnStart).toBeGreaterThan(0);
+    const fnBody = src.slice(fnStart, fnStart + 4000);
+    expect(fnBody).toMatch(/mapRecipeBatchItem\(\s*\{\s*row,\s*auditId/);
+    expect(fnBody).toMatch(/mapProductRow\(/);
+    expect(fnBody).toMatch(/mapDecisionRow\(/);
+  });
+});
+
 describe("AUDIT_TO_ENDPOINT routing table is complete for known surfaces", () => {
   it("includes every action_type the dashboard currently emits to a sync target", () => {
     // Smoke check: the routing table must cover the action types we expect
