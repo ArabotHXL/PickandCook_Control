@@ -397,6 +397,27 @@ describe("dead-letter / cursor classification contract", () => {
     expect(src).toMatch(/summary\.errors === 0/);
   });
 
+  it("auto-resolves prior dead-letter rows when an approve-flow push is accepted for the same (endpoint, target_id)", async () => {
+    // Behavior contract: when pushEndpoint sees an inserted/updated row
+    // whose source audit carried the APPROVE_FLOW_MARKER, it must mark
+    // any open ops_sync_dead_letter rows for the same (endpoint,
+    // target_id) as resolved. This is what closes the loop on the
+    // rec_436 UX trap — the old origin_locked DL row no longer hangs
+    // around red after the operator re-approved and the push succeeded.
+    const src = await import("node:fs").then((m) =>
+      m.promises.readFile(new URL("./opsReverseSync.ts", import.meta.url), "utf8")
+    );
+    // Scoped to approve-flow accepts (not blanket-resolve on any push).
+    expect(src).toMatch(/decisionNote\?\.includes\(APPROVE_FLOW_MARKER\)/);
+    // Resolves by (endpoint, target_id) on UNRESOLVED rows only.
+    expect(src).toMatch(
+      /UPDATE ops_sync_dead_letter[\s\S]{0,300}SET resolved_at = NOW\(\)[\s\S]{0,300}endpoint = \$1[\s\S]{0,200}target_id = \$2[\s\S]{0,200}resolved_at IS NULL/
+    );
+    // Failure to clean up is non-fatal (warn, not error) — operator can
+    // still mark resolved manually, and the run should not be poisoned.
+    expect(src).toMatch(/failed to auto-resolve superseded dead-letter rows/);
+  });
+
   it("retryDeadLetterById uses the same mapper as the cron (mapRecipeBatchItem) so forceOverrideOrigin survives", async () => {
     const src = await import("node:fs").then((m) =>
       m.promises.readFile(new URL("./opsReverseSync.ts", import.meta.url), "utf8")

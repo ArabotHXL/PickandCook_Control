@@ -111,19 +111,39 @@ export function RecipeDetailPage() {
   });
 
   const approveMutation = useMutation({
-    mutationFn: () =>
-      apiFetch(`/api/ops/recipes/${recipeId}/approve`, { method: "POST" }).then(async (r) => {
-        if (!r.ok) throw new Error((await r.json()).error ?? "Approve failed");
-        return r.json();
-      }),
-    onSuccess: () => {
+    mutationFn: async () => {
+      const r = await apiFetch(`/api/ops/recipes/${recipeId}/approve`, { method: "POST" });
+      if (!r.ok) throw new Error((await r.json()).error ?? "Approve failed");
+      const data = await r.json();
+      // Fire-and-forget: kick the reverse-sync job so the [approve-flow]
+      // audit we just wrote gets pushed to prod immediately instead of
+      // waiting up to 15 min for the next cron tick. If this 202 fails
+      // (job already running, network blip, etc.) the cron will still
+      // pick it up — so we swallow the error and surface a softer note.
+      let triggered = false;
+      try {
+        const t = await apiFetch(
+          `/api/ops/system/jobs/opsReverseSync:periodic/trigger`,
+          { method: "POST" }
+        );
+        triggered = t.ok;
+      } catch {
+        triggered = false;
+      }
+      return { ...data, triggered };
+    },
+    onSuccess: (data: { triggered?: boolean }) => {
       toast({
         title: "Approved",
-        description: "Recipe marked acceptable. It will be pushed to prod on the next reverse-sync run.",
+        description: data.triggered
+          ? "Marked acceptable. Reverse-sync triggered — prod should update within ~30s."
+          : "Marked acceptable. Will be pushed to prod on the next reverse-sync run (≤15 min).",
       });
       qc.invalidateQueries({ queryKey: ["ops", "recipe-detail", recipeId] });
       qc.invalidateQueries({ queryKey: ["ops", "recipe-revisions", recipeId] });
       qc.invalidateQueries({ queryKey: ["ops", "recipes"] });
+      qc.invalidateQueries({ queryKey: ["ops", "reverse-sync", "dead-letter"] });
+      qc.invalidateQueries({ queryKey: ["ops", "system", "jobs"] });
     },
     onError: (err: Error) =>
       toast({ title: "Approve failed", description: err.message, variant: "destructive" }),
@@ -562,13 +582,21 @@ function ApproveButton({
   pending: boolean;
   onApprove: () => void;
 }) {
-  const disabled = dirty || alreadyAcceptable || blockers.length > 0 || pending;
+  // alreadyAcceptable is NOT a blocker — re-approving on a row that's
+  // already `acceptable` is the supported way to force a fresh push to
+  // prod (e.g. when an older audit row for the same recipe is stuck in
+  // the dead-letter queue with `origin_locked` because it pre-dated the
+  // approve flow). The /approve endpoint is idempotent: same UPDATE,
+  // new audit rows with the [approve-flow] marker.
+  const disabled = dirty || blockers.length > 0 || pending;
   const tooltip = dirty
     ? "Save your changes before approving — Approve operates on the persisted row."
-    : alreadyAcceptable
-      ? "Already approved (quality_tier=acceptable)."
-      : blockers.length > 0
-        ? `Fix first: ${blockers.join("; ")}`
+    : blockers.length > 0
+      ? `Fix first: ${blockers.join("; ")}`
+      : alreadyAcceptable
+        ? prodOrigin
+          ? "Already acceptable. Click to re-push to prod (forces forceOverrideOrigin)."
+          : "Already acceptable. Click to re-push to prod via approve-flow."
         : prodOrigin
           ? "This is a prod-origin recipe. Approving will overwrite it on prod."
           : "Approve this recipe for prod.";
@@ -578,16 +606,20 @@ function ApproveButton({
       disabled={disabled}
       title={tooltip}
       onClick={() => {
-        const msg = prodOrigin
-          ? "Approve and overwrite the PROD row for this recipe? This sets forceOverrideOrigin on the next reverse-sync push."
-          : "Approve this recipe? It will be marked acceptable and pushed to prod on the next reverse-sync run.";
+        const msg = alreadyAcceptable
+          ? prodOrigin
+            ? "Re-approve and push to PROD again? This writes a fresh [approve-flow] audit so the next sync overwrites the prod row with forceOverrideOrigin."
+            : "Re-approve and push to prod again? This writes a fresh [approve-flow] audit so the next sync re-applies the row."
+          : prodOrigin
+            ? "Approve and overwrite the PROD row for this recipe? This sets forceOverrideOrigin on the next reverse-sync push."
+            : "Approve this recipe? It will be marked acceptable and pushed to prod on the next reverse-sync run.";
         if (confirm(msg)) onApprove();
       }}
       className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed"
       data-testid="button-approve-recipe"
     >
       <CheckCircle2 className="w-3.5 h-3.5" />
-      {pending ? "Approving…" : alreadyAcceptable ? "Approved" : "Approve"}
+      {pending ? "Approving…" : alreadyAcceptable ? "Re-approve" : "Approve"}
     </button>
   );
 }

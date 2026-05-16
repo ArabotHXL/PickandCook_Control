@@ -825,6 +825,47 @@ async function pushEndpoint<TItem>(args: {
     if (!args.opts.dryRun) {
       const itemByKey = new Map<string, TItem>();
       for (const it of batch.items) itemByKey.set(args.toBatchKey([it]), it);
+
+      // Auto-resolve any historical dead-letter rows on the SAME
+      // (endpoint, target_id) when this push was accepted with an
+      // approve-flow marker. Fixes the "old origin_locked DL row keeps
+      // showing red even after operator re-approved" UX trap: the new
+      // push has succeeded, the old audit row is superseded, so the
+      // open DL row is just noise. Scoped to approve-flow accepts to
+      // avoid blanket-resolving DL rows on unrelated routine updates
+      // that happened to share a target_id.
+      for (const r of post.body.results) {
+        if (r.action !== "inserted" && r.action !== "updated") continue;
+        const item = itemByKey.get(r.id);
+        if (!item) continue;
+        const meta = args.getAuditMeta(item);
+        if (!meta.decisionNote?.includes(APPROVE_FLOW_MARKER)) continue;
+        try {
+          const upd = await query<{ id: string }>(
+            `UPDATE ops_sync_dead_letter
+                SET resolved_at = NOW()
+              WHERE endpoint = $1
+                AND target_id = $2
+                AND resolved_at IS NULL
+              RETURNING id::text AS id`,
+            [args.endpoint, r.id]
+          );
+          if (upd.length > 0) {
+            args.opts.log.info(
+              { endpoint: args.endpoint, targetId: r.id, resolvedCount: upd.length, auditId: meta.auditId },
+              "[ops-sync] auto-resolved dead-letter rows superseded by approve-flow push"
+            );
+          }
+        } catch (err) {
+          // Non-fatal: failing to clean up the DL UI shouldn't poison
+          // the run. Operator can still mark them resolved manually.
+          args.opts.log.warn(
+            { endpoint: args.endpoint, targetId: r.id, err: err instanceof Error ? err.message : String(err) },
+            "[ops-sync] failed to auto-resolve superseded dead-letter rows"
+          );
+        }
+      }
+
       for (const r of post.body.results) {
         if (!shouldDeadLetter(r)) continue;
         const item = itemByKey.get(r.id);
