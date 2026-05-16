@@ -8,6 +8,7 @@ import {
   mapProductRow,
   mapDecisionRow,
   postBatch,
+  shouldDeadLetter,
   type RecipeRow,
   type ProductRow,
   type DecisionRow,
@@ -368,16 +369,22 @@ describe("dead-letter / cursor classification contract", () => {
     expect(mig).toMatch(/UNIQUE INDEX[\s\S]{0,200}ops_sync_dead_letter \(audit_id, endpoint\)/);
   });
 
-  it("only `no_change` is treated as a clean consume (cursor may advance); every other skip reason gets dead-lettered", () => {
-    const shouldDeadLetter = (r: { action: string; reason?: string }) =>
-      r.action === "skipped" && r.reason !== "no_change";
-    expect(shouldDeadLetter({ action: "inserted" })).toBe(false);
-    expect(shouldDeadLetter({ action: "updated" })).toBe(false);
-    expect(shouldDeadLetter({ action: "skipped", reason: "no_change" })).toBe(false);
-    expect(shouldDeadLetter({ action: "skipped", reason: "origin_locked" })).toBe(true);
-    expect(shouldDeadLetter({ action: "skipped", reason: "validation_failed" })).toBe(true);
-    // Defensive: unknown reason still dead-letters.
-    expect(shouldDeadLetter({ action: "skipped" })).toBe(true);
+  it("shouldDeadLetter: only `no_change` is a clean consume; every other skip reason dead-letters", () => {
+    // Behavior-level: this is the exact predicate pushEndpoint uses to
+    // decide whether to write into ops_sync_dead_letter. The cursor is
+    // allowed to advance past dead-lettered rows precisely because they
+    // are durably captured here.
+    expect(shouldDeadLetter({ id: "r-1", action: "inserted" })).toBe(false);
+    expect(shouldDeadLetter({ id: "r-1", action: "updated" })).toBe(false);
+    expect(shouldDeadLetter({ id: "r-1", action: "skipped", reason: "no_change" })).toBe(false);
+    expect(shouldDeadLetter({ id: "r-1", action: "skipped", reason: "origin_locked" })).toBe(true);
+    expect(shouldDeadLetter({ id: "r-1", action: "skipped", reason: "validation_failed" })).toBe(true);
+    // Defensive: skipped with no reason still dead-letters (we'd rather
+    // over-capture than silently drop).
+    expect(shouldDeadLetter({ id: "r-1", action: "skipped" })).toBe(true);
+    // Hard error rows aren't dead-lettered — they already bump
+    // summary.errors which pins the cursor for the next replay.
+    expect(shouldDeadLetter({ id: "r-1", action: "error", reason: "boom" })).toBe(false);
   });
 
   it("dead-letter INSERT failure path increments summary.errors so the cursor cannot advance", async () => {

@@ -684,6 +684,23 @@ function mergeSummary(a: EndpointSummary, b: EndpointSummary): EndpointSummary {
   };
 }
 
+/**
+ * Pure classifier — returns `true` when a per-row push result must be
+ * captured in `ops_sync_dead_letter` so the cursor can advance past it.
+ *
+ * Contract:
+ *  - inserted / updated → consumed (not dead-lettered)
+ *  - skipped + `no_change` → consumed (prod is already idempotent on this)
+ *  - skipped + anything else (incl. missing reason) → dead-letter
+ *  - error → already pinned via summary.errors, not dead-lettered here
+ *
+ * Exported for unit tests covering the rec_436 silent-drop fix.
+ */
+export function shouldDeadLetter(r: PerRowResult): boolean {
+  if (r.action !== "skipped") return false;
+  return r.reason !== "no_change";
+}
+
 async function pushEndpoint<TItem>(args: {
   endpoint: Endpoint;
   load: (cursor: CursorPos) => Promise<LoadedBatch<TItem>>;
@@ -809,8 +826,7 @@ async function pushEndpoint<TItem>(args: {
       const itemByKey = new Map<string, TItem>();
       for (const it of batch.items) itemByKey.set(args.toBatchKey([it]), it);
       for (const r of post.body.results) {
-        if (r.action !== "skipped") continue;
-        if (r.reason === "no_change") continue;
+        if (!shouldDeadLetter(r)) continue;
         const item = itemByKey.get(r.id);
         if (!item) continue; // result id not from this batch — defensive
         const meta = args.getAuditMeta(item);

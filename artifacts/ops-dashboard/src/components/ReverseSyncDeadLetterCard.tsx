@@ -12,7 +12,6 @@ interface DeadLetterRow {
   firstSeenAt: string;
   retryCount: number;
   resolvedAt: string | null;
-  lastError: string | null;
 }
 
 const ENDPOINT_LABEL: Record<string, string> = {
@@ -28,7 +27,7 @@ export function ReverseSyncDeadLetterCard() {
   const listQuery = useQuery<{ rows: DeadLetterRow[]; total: number }>({
     queryKey: ["ops", "reverse-sync", "dead-letter"],
     queryFn: () =>
-      apiFetch("/api/ops/system/reverse-sync/dead-letter?resolved=false&limit=50").then((r) =>
+      apiFetch("/api/ops/system/reverse-sync/dead-letter?status=unresolved&limit=50").then((r) =>
         r.json(),
       ),
     refetchInterval: 60_000,
@@ -111,7 +110,7 @@ export function ReverseSyncDeadLetterCard() {
                   <td className="py-2 pr-3 text-xs">
                     <span
                       className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-mono"
-                      title={r.lastError ?? r.reason}
+                      title={r.reason}
                     >
                       {r.reason}
                     </span>
