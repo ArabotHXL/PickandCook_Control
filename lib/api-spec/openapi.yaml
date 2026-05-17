@@ -760,6 +760,25 @@ paths:
         "400":
           description: Unsupported source
 
+  /ops/recipes/staging/auto-extract:
+    post:
+      operationId: autoExtractOpsStagingIngredients
+      tags: [ops-staging]
+      summary: Bulk-run "Auto-extract from instructions" across imported / needs_review rows
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpsStagingAutoExtractBody"
+      responses:
+        "200":
+          description: Auto-extract rollup
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsStagingAutoExtractResponse"
+
   # ── Moderation ────────────────────────────────────────────────────────────
   /ops/moderation:
     get:
@@ -1804,6 +1823,37 @@ components:
         - errors
         - mappedDelta
         - promotedToReady
+
+    OpsStagingAutoExtractBody:
+      type: object
+      properties:
+        source:
+          type: string
+        onlyNeedsReview:
+          type: boolean
+
+    OpsStagingAutoExtractResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        scanned:
+          type: integer
+        touched:
+          type: integer
+        newlyMappedIngredients:
+          type: integer
+        promotedToReady:
+          type: integer
+        rowsWithNoCandidates:
+          type: integer
+      required:
+        - ok
+        - scanned
+        - touched
+        - newlyMappedIngredients
+        - promotedToReady
+        - rowsWithNoCandidates
 
     OpsUserRecipeRow:
       type: object

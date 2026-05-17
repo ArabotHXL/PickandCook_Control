@@ -835,6 +835,23 @@ export const ReextractOpsStagingIngredientsResponse = zod.object({
 });
 
 /**
+ * @summary Bulk-run "Auto-extract from instructions" across imported / needs_review rows
+ */
+export const AutoExtractOpsStagingIngredientsBody = zod.object({
+  source: zod.string().optional(),
+  onlyNeedsReview: zod.boolean().optional(),
+});
+
+export const AutoExtractOpsStagingIngredientsResponse = zod.object({
+  ok: zod.boolean(),
+  scanned: zod.number(),
+  touched: zod.number(),
+  newlyMappedIngredients: zod.number(),
+  promotedToReady: zod.number(),
+  rowsWithNoCandidates: zod.number(),
+});
+
+/**
  * @summary List moderation queue items
  */
 export const getOpsModerationQueryStatusDefault = `pending`;

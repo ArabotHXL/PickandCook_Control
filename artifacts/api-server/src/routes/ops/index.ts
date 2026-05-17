@@ -25,6 +25,7 @@ import {
   rejectStagingRecipe,
   remapStagingIngredients,
   reextractStagingIngredients,
+  bulkAutoExtractStagingIngredients,
   createStagingRecipe,
   bulkCreateStagingRecipes,
 } from "./recipesStaging.js";
@@ -130,6 +131,7 @@ export function registerOpsRoutes(app: Express): void {
   app.post("/api/ops/recipes/staging/bulk", requireAdminWrite, bulkCreateStagingRecipes);
   app.post("/api/ops/recipes/staging/remap", requireAdminWrite, remapStagingIngredients);
   app.post("/api/ops/recipes/staging/reextract", requireAdminWrite, reextractStagingIngredients);
+  app.post("/api/ops/recipes/staging/auto-extract", requireAdminWrite, bulkAutoExtractStagingIngredients);
   app.get("/api/ops/recipes/staging/:stagingId", requireAdmin, getStagingDetail);
   app.patch("/api/ops/recipes/staging/:stagingId", requireAdminWrite, updateStagingRecipe);
   app.post("/api/ops/recipes/staging/:stagingId/promote", requireAdminWrite, promoteStagingRecipe);

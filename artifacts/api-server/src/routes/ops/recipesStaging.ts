@@ -4,7 +4,10 @@ import { writeAuditLog } from "./audit.js";
 import type { AdminPayload } from "./auth.js";
 import { parseLimit, parsePage } from "./queryParams.js";
 import { randomUUID } from "node:crypto";
-import { mapIngredientNames } from "../../services/ingredientMapping.js";
+import {
+  extractIngredientCandidates,
+  mapIngredientNames,
+} from "../../services/ingredientMapping.js";
 import {
   extractIngredientsFromWikitext,
   fetchWikitextByPageId,
@@ -860,6 +863,195 @@ export async function reextractStagingIngredients(
     errors,
     mappedDelta: totalDelta,
     promotedToReady: nowReady,
+  });
+}
+
+/**
+ * Bulk-run the per-row "Auto-extract from instructions" pipeline over staging
+ * rows that haven't been finalized. Same engine as `extractRecipeIngredients`
+ * on the recipe detail page (services/ingredientMapping.ts:
+ * `extractIngredientCandidates` → `mapIngredientNames`) but applied across the
+ * queue in one shot so operators don't have to open each row.
+ *
+ * Bounded to `imported` / `needs_review` rows (we never touch promoted /
+ * rejected), capped per call. Additive only — never removes existing IDs from
+ * `required_ingredient_ids` / `optional_ingredient_ids`. A row that already
+ * has every candidate mapped is left untouched.
+ *
+ * After extraction we recompute `mapping_rate` (combined mapped vs combined
+ * unmapped) and `status` against the 0.5 cutoff so newly-resolved rows can
+ * graduate from `needs_review` → `ready`.
+ *
+ * Audited as a single rollup entry (no per-row audit) to match
+ * `/remap` and `/reextract`.
+ */
+const MAX_AUTO_EXTRACT_PER_CALL = 50;
+const MAX_AUTO_EXTRACT_CANDIDATES_PER_ROW = 80;
+
+export async function bulkAutoExtractStagingIngredients(
+  req: Request,
+  res: Response
+): Promise<void> {
+  const admin = getAdminUser(req);
+  const sourceFilter = req.body?.source as string | undefined;
+  const onlyNeedsReview = req.body?.onlyNeedsReview === true;
+
+  const conditions: string[] = ["status = ANY($1::text[])"];
+  const params: unknown[] = [
+    onlyNeedsReview ? ["needs_review"] : ["imported", "needs_review"],
+  ];
+  let pi = 2;
+  if (sourceFilter) {
+    conditions.push(`source = $${pi++}`);
+    params.push(sourceFilter);
+  }
+
+  const rows = await query<{
+    id: string;
+    status: string;
+    instructions_summary: string | null;
+    instructions_steps: unknown;
+    required_ingredient_ids: unknown;
+    optional_ingredient_ids: unknown;
+  }>(
+    `SELECT id, status, instructions_summary, instructions_steps,
+            required_ingredient_ids, optional_ingredient_ids
+       FROM imported_recipes_staging
+      WHERE ${conditions.join(" AND ")}
+      ORDER BY mapping_rate ASC NULLS FIRST
+      LIMIT ${MAX_AUTO_EXTRACT_PER_CALL}`,
+    params
+  );
+
+  let touched = 0;
+  let totalNewlyMapped = 0;
+  let nowReady = 0;
+  let rowsWithNoCandidates = 0;
+
+  for (const row of rows) {
+    const summary = row.instructions_summary ?? "";
+    const steps: string[] = Array.isArray(row.instructions_steps)
+      ? (row.instructions_steps as unknown[])
+          .map((s) => {
+            if (typeof s === "string") return s;
+            if (s && typeof s === "object") {
+              const o = s as Record<string, unknown>;
+              if (typeof o.text === "string") return o.text;
+              if (typeof o.step === "string") return o.step;
+              if (typeof o.instruction === "string") return o.instruction;
+            }
+            return "";
+          })
+          .filter((s): s is string => typeof s === "string" && s.length > 0)
+      : [];
+
+    if (!summary && steps.length === 0) continue;
+
+    const candidates = extractIngredientCandidates(summary, steps).slice(
+      0,
+      MAX_AUTO_EXTRACT_CANDIDATES_PER_ROW
+    );
+    if (candidates.length === 0) {
+      rowsWithNoCandidates++;
+      continue;
+    }
+
+    const requiredPhrases = candidates.filter((c) => !c.optional).map((c) => c.phrase);
+    const optionalPhrases = candidates.filter((c) => c.optional).map((c) => c.phrase);
+
+    const reqResult = await mapIngredientNames(requiredPhrases);
+    const optResult = await mapIngredientNames(optionalPhrases);
+
+    const existingRequired = Array.isArray(row.required_ingredient_ids)
+      ? (row.required_ingredient_ids as unknown[]).filter(
+          (s): s is string => typeof s === "string"
+        )
+      : [];
+    const existingOptional = Array.isArray(row.optional_ingredient_ids)
+      ? (row.optional_ingredient_ids as unknown[]).filter(
+          (s): s is string => typeof s === "string"
+        )
+      : [];
+    const existingAll = new Set<string>([...existingRequired, ...existingOptional]);
+    const dedup = (xs: string[]): string[] => Array.from(new Set(xs));
+
+    // Additive only: never propose IDs the row already has in either list.
+    const newRequired = dedup(reqResult.mapped).filter((id) => !existingAll.has(id));
+    const requiredSet = new Set([...existingRequired, ...newRequired]);
+    const newOptional = dedup(optResult.mapped).filter(
+      (id) => !existingAll.has(id) && !requiredSet.has(id)
+    );
+
+    const newlyMapped = newRequired.length + newOptional.length;
+
+    // Replace unmapped_ingredient_names with the current run's unresolved
+    // phrases (matches /reextract semantics) so mapping_rate reflects what
+    // we genuinely can't resolve now — keeping the prior list around would
+    // double-count entries the new extraction just successfully mapped under
+    // a slightly different phrasing.
+    const newUnmappedNames = dedup([...reqResult.unmapped, ...optResult.unmapped]);
+
+    if (newlyMapped === 0) continue;
+
+    const combinedRequired = [...existingRequired, ...newRequired];
+    const combinedOptional = [...existingOptional, ...newOptional];
+    const totalMapped = combinedRequired.length + combinedOptional.length;
+    const totalAttempted = totalMapped + newUnmappedNames.length;
+    const newRate = totalAttempted > 0 ? totalMapped / totalAttempted : 0;
+    const newStatus = newRate >= 0.5 ? "ready" : "needs_review";
+
+    // State guard: never overwrite a row that was promoted/rejected between
+    // our SELECT and this UPDATE.
+    const updated = await query(
+      `UPDATE imported_recipes_staging
+          SET required_ingredient_ids = $2::jsonb,
+              optional_ingredient_ids = $3::jsonb,
+              unmapped_ingredient_names = $4::jsonb,
+              mapping_rate = $5,
+              status = $6,
+              updated_at = NOW()
+        WHERE id = $1
+          AND status IN ('imported','needs_review')
+        RETURNING id`,
+      [
+        row.id,
+        JSON.stringify(combinedRequired),
+        JSON.stringify(combinedOptional),
+        JSON.stringify(newUnmappedNames),
+        newRate,
+        newStatus,
+      ]
+    );
+    if (updated.length === 0) continue;
+
+    touched++;
+    totalNewlyMapped += newlyMapped;
+    if (newStatus === "ready" && row.status !== "ready") nowReady++;
+  }
+
+  await writeAuditLog({
+    adminUserId: admin.userId,
+    actionType: "staging_recipes_auto_extract",
+    targetType: "imported_recipes_staging",
+    targetId: "batch",
+    newValue: {
+      scanned: rows.length,
+      touched,
+      newlyMappedIngredients: totalNewlyMapped,
+      promotedToReady: nowReady,
+      rowsWithNoCandidates,
+      sourceFilter: sourceFilter ?? null,
+      onlyNeedsReview,
+    },
+  });
+
+  res.json({
+    ok: true,
+    scanned: rows.length,
+    touched,
+    newlyMappedIngredients: totalNewlyMapped,
+    promotedToReady: nowReady,
+    rowsWithNoCandidates,
   });
 }
 

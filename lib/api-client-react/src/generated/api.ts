@@ -54,6 +54,8 @@ import type {
   OpsProposalListResponse,
   OpsRecipeListResponse,
   OpsRecipeReportListResponse,
+  OpsStagingAutoExtractBody,
+  OpsStagingAutoExtractResponse,
   OpsStagingBulkCreateBody,
   OpsStagingBulkCreateResponse,
   OpsStagingCreateBody,
@@ -2612,6 +2614,98 @@ export const useReextractOpsStagingIngredients = <
   TContext
 > => {
   return useMutation(getReextractOpsStagingIngredientsMutationOptions(options));
+};
+
+/**
+ * @summary Bulk-run "Auto-extract from instructions" across imported / needs_review rows
+ */
+export const getAutoExtractOpsStagingIngredientsUrl = () => {
+  return `/api/ops/recipes/staging/auto-extract`;
+};
+
+export const autoExtractOpsStagingIngredients = async (
+  opsStagingAutoExtractBody?: OpsStagingAutoExtractBody,
+  options?: RequestInit,
+): Promise<OpsStagingAutoExtractResponse> => {
+  return customFetch<OpsStagingAutoExtractResponse>(
+    getAutoExtractOpsStagingIngredientsUrl(),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(opsStagingAutoExtractBody),
+    },
+  );
+};
+
+export const getAutoExtractOpsStagingIngredientsMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof autoExtractOpsStagingIngredients>>,
+    TError,
+    { data: BodyType<OpsStagingAutoExtractBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof autoExtractOpsStagingIngredients>>,
+  TError,
+  { data: BodyType<OpsStagingAutoExtractBody> },
+  TContext
+> => {
+  const mutationKey = ["autoExtractOpsStagingIngredients"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof autoExtractOpsStagingIngredients>>,
+    { data: BodyType<OpsStagingAutoExtractBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return autoExtractOpsStagingIngredients(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AutoExtractOpsStagingIngredientsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof autoExtractOpsStagingIngredients>>
+>;
+export type AutoExtractOpsStagingIngredientsMutationBody =
+  BodyType<OpsStagingAutoExtractBody>;
+export type AutoExtractOpsStagingIngredientsMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Bulk-run "Auto-extract from instructions" across imported / needs_review rows
+ */
+export const useAutoExtractOpsStagingIngredients = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof autoExtractOpsStagingIngredients>>,
+    TError,
+    { data: BodyType<OpsStagingAutoExtractBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof autoExtractOpsStagingIngredients>>,
+  TError,
+  { data: BodyType<OpsStagingAutoExtractBody> },
+  TContext
+> => {
+  return useMutation(
+    getAutoExtractOpsStagingIngredientsMutationOptions(options),
+  );
 };
 
 /**

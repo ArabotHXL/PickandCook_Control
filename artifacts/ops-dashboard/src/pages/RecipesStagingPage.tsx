@@ -8,6 +8,7 @@ import {
   useRejectOpsStaging,
   useRemapOpsStagingIngredients,
   useReextractOpsStagingIngredients,
+  useAutoExtractOpsStagingIngredients,
   useUpdateOpsStaging,
   useCreateOpsStaging,
   useBulkCreateOpsStaging,
@@ -1429,6 +1430,27 @@ export function RecipesStagingPage() {
     createStaging.mutate({ data: { title: t } });
   };
 
+  const autoExtract = useAutoExtractOpsStagingIngredients({
+    mutation: {
+      onSuccess: (d) => {
+        const skipped = d.rowsWithNoCandidates
+          ? ` ${d.rowsWithNoCandidates} skipped (no candidates).`
+          : "";
+        toast({
+          title: "Auto-extracted from instructions",
+          description: `Scanned ${d.scanned}, updated ${d.touched}, +${d.newlyMappedIngredients} ingredients mapped, ${d.promotedToReady} now ready.${skipped}`,
+        });
+        invalidateLists();
+      },
+      onError: (e: Error) =>
+        toast({
+          title: "Auto-extract failed",
+          description: e.message,
+          variant: "destructive",
+        }),
+    },
+  });
+
   const reextract = useReextractOpsStagingIngredients({
     mutation: {
       onSuccess: (d) => {
@@ -1576,6 +1598,18 @@ export function RecipesStagingPage() {
                 {reextract.isPending ? "Re-extracting…" : "Re-extract from source"}
               </button>
             )}
+            <button
+              onClick={() =>
+                autoExtract.mutate({ data: { source: source || undefined } })
+              }
+              disabled={autoExtract.isPending}
+              data-testid="button-auto-extract"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium border border-input bg-background hover:bg-muted disabled:opacity-50"
+              title="Run Auto-extract from instructions across imported / needs_review rows (capped at 50)"
+            >
+              <Sparkles className="w-4 h-4" />
+              {autoExtract.isPending ? "Auto-extracting…" : "Bulk auto-extract"}
+            </button>
             <button
               onClick={() => remap.mutate({ data: { source: source || undefined } })}
               disabled={remap.isPending}

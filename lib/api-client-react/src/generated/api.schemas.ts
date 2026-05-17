@@ -387,6 +387,20 @@ export interface OpsStagingReextractResponse {
   promotedToReady: number;
 }
 
+export interface OpsStagingAutoExtractBody {
+  source?: string;
+  onlyNeedsReview?: boolean;
+}
+
+export interface OpsStagingAutoExtractResponse {
+  ok: boolean;
+  scanned: number;
+  touched: number;
+  newlyMappedIngredients: number;
+  promotedToReady: number;
+  rowsWithNoCandidates: number;
+}
+
 export interface OpsUserRecipeRow {
   id: string;
   userId?: string;
