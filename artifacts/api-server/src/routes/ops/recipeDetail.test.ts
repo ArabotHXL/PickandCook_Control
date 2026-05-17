@@ -156,15 +156,22 @@ describe("extractRecipeIngredients (POST /api/ops/recipes/:id/extract-ingredient
       optional_ingredient_ids: ["p_salt"], // already present → must drop
     });
     mapIngredientNamesMock.mockImplementation(async (names: string[]) => ({
-      mapped: names.map((n) => (n === "flour" ? "p_flour" : n === "salt" ? "p_salt" : `p_${n}`)),
+      mapped: names.map((n) => {
+        const id = n === "flour" ? "p_flour" : n === "salt" ? "p_salt" : `p_${n}`;
+        return { id, name: n };
+      }),
       unmapped: [],
     }));
     const res = makeRes();
     await extractRecipeIngredients(makeReq({}), res);
     expect(res._status).toBe(200);
-    const body = res._body as { newRequired: string[]; newOptional: string[]; unmapped: string[] };
-    expect(body.newRequired).not.toContain("p_flour");
-    expect(body.newOptional).not.toContain("p_salt");
+    const body = res._body as {
+      newRequired: Array<{ id: string; name: string }>;
+      newOptional: Array<{ id: string; name: string }>;
+      unmapped: string[];
+    };
+    expect(body.newRequired.map((m) => m.id)).not.toContain("p_flour");
+    expect(body.newOptional.map((m) => m.id)).not.toContain("p_salt");
   });
 
   it("optional results are dropped if they would duplicate Required (measured wins)", async () => {
@@ -177,14 +184,17 @@ describe("extractRecipeIngredients (POST /api/ops/recipes/:id/extract-ingredient
     });
     // Both required and optional phrases resolve to the same product id.
     mapIngredientNamesMock.mockImplementation(async () => ({
-      mapped: ["p_parmesan"],
+      mapped: [{ id: "p_parmesan", name: "Parmesan" }],
       unmapped: [],
     }));
     const res = makeRes();
     await extractRecipeIngredients(makeReq({}), res);
-    const body = res._body as { newRequired: string[]; newOptional: string[] };
-    expect(body.newRequired).toContain("p_parmesan");
-    expect(body.newOptional).not.toContain("p_parmesan");
+    const body = res._body as {
+      newRequired: Array<{ id: string; name: string }>;
+      newOptional: Array<{ id: string; name: string }>;
+    };
+    expect(body.newRequired.map((m) => m.id)).toContain("p_parmesan");
+    expect(body.newOptional.map((m) => m.id)).not.toContain("p_parmesan");
   });
 
   it("uses caller-supplied draft body over the persisted row", async () => {
@@ -253,10 +263,38 @@ describe("extractRecipeIngredients (POST /api/ops/recipes/:id/extract-ingredient
     mapIngredientNamesMock.mockResolvedValue({ mapped: [], unmapped: [] });
     const res = makeRes();
     await extractRecipeIngredients(makeReq({}), res);
-    const body = res._body as { newRequired: string[]; newOptional: string[]; unmapped: string[] };
+    const body = res._body as {
+      newRequired: Array<{ id: string; name: string }>;
+      newOptional: Array<{ id: string; name: string }>;
+      unmapped: string[];
+    };
     expect(body.newRequired).toEqual([]);
     expect(body.newOptional).toEqual([]);
     expect(body.unmapped).toEqual([]);
+  });
+
+  it("returns {id, name} pairs so the modal can render names alongside IDs", async () => {
+    queryOneMock.mockResolvedValueOnce({
+      instructions_summary: "Mix 1 cup flour with 1 tsp salt.",
+      instructions_steps: [],
+      required_ingredient_ids: [],
+      optional_ingredient_ids: [],
+    });
+    mapIngredientNamesMock.mockImplementation(async (names: string[]) => ({
+      mapped: names.map((n) => ({
+        id: n === "flour" ? "p_flour" : "p_salt",
+        name: n === "flour" ? "All-purpose flour" : "Table salt",
+      })),
+      unmapped: [],
+    }));
+    const res = makeRes();
+    await extractRecipeIngredients(makeReq({}), res);
+    const body = res._body as {
+      newRequired: Array<{ id: string; name: string }>;
+      newOptional: Array<{ id: string; name: string }>;
+    };
+    const flourEntry = body.newRequired.find((m) => m.id === "p_flour");
+    expect(flourEntry).toEqual({ id: "p_flour", name: "All-purpose flour" });
   });
 });
 

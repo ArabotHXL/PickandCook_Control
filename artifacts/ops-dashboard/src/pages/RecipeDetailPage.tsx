@@ -10,6 +10,14 @@ import { useToast } from "@/hooks/use-toast";
 import { isProdOriginRecipe } from "@/lib/recipeOrigin";
 import { mergeExtractPicks } from "@/lib/extractMerge";
 
+/**
+ * One proposed ingredient from `POST /api/ops/recipes/:id/extract-ingredients`.
+ * Carries both the catalog `id` and the human-readable product `name` so the
+ * Auto-extract modal can render "fdc_34845 — Cauliflower" without an extra
+ * round-trip to the products table. (Task #38.)
+ */
+type ExtractItem = { id: string; name: string };
+
 interface RecipeDto {
   id: string;
   title: string;
@@ -63,8 +71,8 @@ export function RecipeDetailPage() {
   const [note, setNote] = useState("");
   const [uploading, setUploading] = useState(false);
   const [extractPreview, setExtractPreview] = useState<{
-    newRequired: string[];
-    newOptional: string[];
+    newRequired: ExtractItem[];
+    newOptional: ExtractItem[];
     unmapped: string[];
   } | null>(null);
 
@@ -168,8 +176,8 @@ export function RecipeDetailPage() {
       });
       if (!r.ok) throw new Error((await r.json()).error ?? "Extract failed");
       return (await r.json()) as {
-        newRequired: string[];
-        newOptional: string[];
+        newRequired: ExtractItem[];
+        newOptional: ExtractItem[];
         unmapped: string[];
       };
     },
@@ -633,17 +641,19 @@ function ExtractIngredientsModal({
   onClose,
   onApply,
 }: {
-  preview: { newRequired: string[]; newOptional: string[]; unmapped: string[] };
+  preview: { newRequired: ExtractItem[]; newOptional: ExtractItem[]; unmapped: string[] };
   onClose: () => void;
   onApply: (picks: { required: string[]; optional: string[] }) => void;
 }) {
   // Default everything to checked — the operator is reviewing, not curating
-  // from scratch. They can untick obviously-wrong matches.
+  // from scratch. They can untick obviously-wrong matches. Picks are keyed
+  // by catalog `id` so de-dup against existing required/optional stays
+  // exact-match (task #38 carries `name` for display only).
   const [pickedReq, setPickedReq] = useState<Set<string>>(
-    () => new Set(preview.newRequired)
+    () => new Set(preview.newRequired.map((m) => m.id))
   );
   const [pickedOpt, setPickedOpt] = useState<Set<string>>(
-    () => new Set(preview.newOptional)
+    () => new Set(preview.newOptional.map((m) => m.id))
   );
 
   function toggle(set: Set<string>, setSet: (s: Set<string>) => void, id: string) {
@@ -698,7 +708,7 @@ function ExtractIngredientsModal({
 
               <PickList
                 title="New required ingredients"
-                ids={preview.newRequired}
+                items={preview.newRequired}
                 picked={pickedReq}
                 onToggle={(id) => toggle(pickedReq, setPickedReq, id)}
                 testidPrefix="extract-required"
@@ -706,7 +716,7 @@ function ExtractIngredientsModal({
               <PickList
                 title="New optional ingredients"
                 hint="Detected near garnish / to taste / for serving / optional wording."
-                ids={preview.newOptional}
+                items={preview.newOptional}
                 picked={pickedOpt}
                 onToggle={(id) => toggle(pickedOpt, setPickedOpt, id)}
                 testidPrefix="extract-optional"
@@ -767,36 +777,42 @@ function ExtractIngredientsModal({
 function PickList({
   title,
   hint,
-  ids,
+  items,
   picked,
   onToggle,
   testidPrefix,
 }: {
   title: string;
   hint?: string;
-  ids: string[];
+  items: ExtractItem[];
   picked: Set<string>;
   onToggle: (id: string) => void;
   testidPrefix: string;
 }) {
-  if (ids.length === 0) return null;
+  if (items.length === 0) return null;
   return (
     <div>
       <h4 className="text-xs font-semibold mb-1">
-        {title} ({ids.length})
+        {title} ({items.length})
       </h4>
       {hint && <p className="text-xs text-muted-foreground mb-1.5">{hint}</p>}
       <ul className="space-y-1">
-        {ids.map((id) => (
+        {items.map(({ id, name }) => (
           <li key={id}>
-            <label className="flex items-center gap-2 text-xs font-mono cursor-pointer">
+            <label className="flex items-center gap-2 text-xs cursor-pointer">
               <input
                 type="checkbox"
                 checked={picked.has(id)}
                 onChange={() => onToggle(id)}
                 data-testid={`${testidPrefix}-${id}`}
               />
-              <span>{id}</span>
+              <span className="font-mono text-muted-foreground">{id}</span>
+              {name && (
+                <>
+                  <span className="text-muted-foreground">—</span>
+                  <span data-testid={`${testidPrefix}-name-${id}`}>{name}</span>
+                </>
+              )}
             </label>
           </li>
         ))}

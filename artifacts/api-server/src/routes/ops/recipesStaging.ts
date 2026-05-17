@@ -675,8 +675,9 @@ export async function remapStagingIngredients(
     // ingredient IDs stay (they're product UUIDs we trust).
     if (previouslyUnmapped.length === 0) continue;
 
-    const { mapped: newlyMapped, unmapped: stillUnmapped } =
+    const { mapped: newlyMappedPairs, unmapped: stillUnmapped } =
       await mapIngredientNames(previouslyUnmapped);
+    const newlyMapped = newlyMappedPairs.map((m) => m.id);
 
     if (newlyMapped.length === 0) continue; // nothing changed
 
@@ -799,7 +800,8 @@ export async function reextractStagingIngredients(
       const candidates = extractIngredientsFromWikitext(wikitext);
       if (candidates.length === 0) continue;
 
-      const { mapped, unmapped } = await mapIngredientNames(candidates);
+      const { mapped: mappedPairs, unmapped } = await mapIngredientNames(candidates);
+      const mapped = mappedPairs.map((m) => m.id);
       const totalAttempted = mapped.length + unmapped.length;
       if (totalAttempted === 0) continue;
       const newRate = mapped.length / totalAttempted;
@@ -976,9 +978,11 @@ export async function bulkAutoExtractStagingIngredients(
     const dedup = (xs: string[]): string[] => Array.from(new Set(xs));
 
     // Additive only: never propose IDs the row already has in either list.
-    const newRequired = dedup(reqResult.mapped).filter((id) => !existingAll.has(id));
+    const reqMappedIds = reqResult.mapped.map((m) => m.id);
+    const optMappedIds = optResult.mapped.map((m) => m.id);
+    const newRequired = dedup(reqMappedIds).filter((id) => !existingAll.has(id));
     const requiredSet = new Set([...existingRequired, ...newRequired]);
-    const newOptional = dedup(optResult.mapped).filter(
+    const newOptional = dedup(optMappedIds).filter(
       (id) => !existingAll.has(id) && !requiredSet.has(id)
     );
 

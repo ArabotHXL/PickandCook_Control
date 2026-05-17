@@ -100,7 +100,8 @@ export async function recipesNightly(ctx: JobContext): Promise<JobSummary> {
     }
 
     const ingNames = extractIngredients(meal);
-    const { mapped, unmapped } = await mapIngredientNames(ingNames);
+    const { mapped: mappedPairs, unmapped } = await mapIngredientNames(ingNames);
+    const mapped = mappedPairs.map((m) => m.id);
     const mappingRate = ingNames.length === 0 ? 0 : mapped.length / ingNames.length;
     totalMappingRate += mappingRate;
     countedForRate++;

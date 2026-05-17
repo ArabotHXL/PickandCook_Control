@@ -591,16 +591,32 @@ export async function extractRecipeIngredients(
   const optResult = await mapIngredientNames(optionalPhrases);
 
   // Additive only: never propose IDs the recipe already has in either list.
+  // The response carries `{id, name}` pairs so the dashboard's diff modal
+  // can render "fdc_34845 — Cauliflower" without re-fetching the catalog.
   const existingAll = new Set<string>([...existingRequired, ...existingOptional]);
-  const dedup = (xs: string[]): string[] => Array.from(new Set(xs));
+  const dedupById = (
+    xs: Array<{ id: string; name: string }>
+  ): Array<{ id: string; name: string }> => {
+    const seen = new Set<string>();
+    const out: Array<{ id: string; name: string }> = [];
+    for (const m of xs) {
+      if (seen.has(m.id)) continue;
+      seen.add(m.id);
+      out.push(m);
+    }
+    return out;
+  };
+  const dedupStr = (xs: string[]): string[] => Array.from(new Set(xs));
 
-  const newRequired = dedup(reqResult.mapped).filter((id) => !existingAll.has(id));
-  const requiredSet = new Set(newRequired);
-  // Optional can't duplicate Required either — a measured mention wins.
-  const newOptional = dedup(optResult.mapped).filter(
-    (id) => !existingAll.has(id) && !requiredSet.has(id)
+  const newRequired = dedupById(reqResult.mapped).filter(
+    (m) => !existingAll.has(m.id)
   );
-  const unmapped = dedup([...reqResult.unmapped, ...optResult.unmapped]);
+  const requiredSet = new Set(newRequired.map((m) => m.id));
+  // Optional can't duplicate Required either — a measured mention wins.
+  const newOptional = dedupById(optResult.mapped).filter(
+    (m) => !existingAll.has(m.id) && !requiredSet.has(m.id)
+  );
+  const unmapped = dedupStr([...reqResult.unmapped, ...optResult.unmapped]);
 
   res.json({ newRequired, newOptional, unmapped });
 }

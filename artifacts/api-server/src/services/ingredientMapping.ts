@@ -125,8 +125,21 @@ export function normalizeIngredientName(raw: string): string {
   return words.join(" ").trim();
 }
 
+/**
+ * Result shape for {@link mapIngredientNames}.
+ *
+ * `mapped` carries both the catalog `id` and the human-readable `name`
+ * so callers that need to render a preview (e.g. the Auto-extract modal)
+ * don't have to round-trip the product table a second time. Callers that
+ * only need IDs can `.map((m) => m.id)`.
+ */
+export interface MappedIngredient {
+  id: string;
+  name: string;
+}
+
 export interface IngredientMappingResult {
-  mapped: string[];
+  mapped: MappedIngredient[];
   unmapped: string[];
 }
 
@@ -323,7 +336,7 @@ export function extractIngredientCandidates(
 export async function mapIngredientNames(
   names: string[]
 ): Promise<IngredientMappingResult> {
-  const mapped: string[] = [];
+  const mapped: MappedIngredient[] = [];
   const unmapped: string[] = [];
 
   for (const original of names) {
@@ -335,9 +348,16 @@ export async function mapIngredientNames(
 
     // Single round-trip per name. UNION ALL preserves the tier ordering;
     // an outer SELECT picks the best one (lowest tier, then shortest).
-    const rows = await query<{ id: string; tier: number; name_len: number }>(
+    // `name` is carried through so callers can render a preview without
+    // a second round-trip to the products table.
+    const rows = await query<{
+      id: string;
+      name: string;
+      tier: number;
+      name_len: number;
+    }>(
       `WITH candidates AS (
-         SELECT id, 1 AS tier, length(name) AS name_len
+         SELECT id, name, 1 AS tier, length(name) AS name_len
            FROM products
           WHERE lower(name) = lower($1)
              OR EXISTS (
@@ -345,7 +365,7 @@ export async function mapIngredientNames(
                 WHERE lower(s) = lower($1)
              )
          UNION ALL
-         SELECT id, 2 AS tier, length(name)
+         SELECT id, name, 2 AS tier, length(name)
            FROM products
           WHERE $2 <> ''
             AND ( lower(name) = $2
@@ -354,13 +374,13 @@ export async function mapIngredientNames(
                      WHERE lower(s) = $2
                   ))
          UNION ALL
-         SELECT id, 3 AS tier, length(name)
+         SELECT id, name, 3 AS tier, length(name)
            FROM products
           WHERE $3
             AND $2 <> ''
             AND lower(name) ~ ('\\m' || $2 || '\\M')
        )
-       SELECT id, tier, name_len
+       SELECT id, name, tier, name_len
          FROM candidates
         ORDER BY tier ASC, name_len ASC
         LIMIT 1`,
@@ -368,7 +388,7 @@ export async function mapIngredientNames(
     );
 
     if (rows.length > 0) {
-      mapped.push(rows[0]!.id);
+      mapped.push({ id: rows[0]!.id, name: rows[0]!.name });
     } else {
       unmapped.push(trimmed);
     }

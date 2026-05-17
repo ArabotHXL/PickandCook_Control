@@ -261,7 +261,8 @@ export async function wikibooksWeekly(ctx: JobContext): Promise<JobSummary> {
     if (candidateNames.length === 0) {
       candidateNames = extractCandidateIngredients(extract);
     }
-    const { mapped, unmapped } = await mapIngredientNames(candidateNames);
+    const { mapped: mappedPairs, unmapped } = await mapIngredientNames(candidateNames);
+    const mapped = mappedPairs.map((m) => m.id);
     const mappingRate = candidateNames.length === 0 ? 0 : mapped.length / candidateNames.length;
     totalMappingRate += mappingRate;
     countedForRate++;
