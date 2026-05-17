@@ -1,7 +1,17 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+// Stub the DB layer so we can exercise mapIngredientNames in isolation.
+// Each call returns the rows the test queued; we don't try to emulate
+// the tier-ordering SQL, only the wire shape mapIngredientNames consumes.
+const queryRowsMock = vi.fn();
+vi.mock("../routes/ops/db.js", () => ({
+  query: (..._args: unknown[]) => queryRowsMock(),
+}));
+
 import {
   normalizeIngredientName,
   extractIngredientCandidates,
+  mapIngredientNames,
 } from "./ingredientMapping.js";
 
 describe("normalizeIngredientName", () => {
@@ -152,5 +162,36 @@ describe("extractIngredientCandidates", () => {
     expect(out).toEqual(
       expect.arrayContaining(["vegetable oil", "garlic", "ginger"])
     );
+  });
+});
+
+describe("mapIngredientNames return shape (task #38 contract)", () => {
+  beforeEach(() => {
+    queryRowsMock.mockReset();
+  });
+
+  it("returns { id, name } objects in `mapped` so the Auto-extract modal can render names", async () => {
+    // Two inputs → two SQL round-trips. First resolves, second doesn't.
+    queryRowsMock
+      .mockResolvedValueOnce([
+        { id: "fdc_34845", name: "Cauliflower", tier: 1, name_len: 11 },
+      ])
+      .mockResolvedValueOnce([]);
+
+    const result = await mapIngredientNames(["cauliflower", "moonrock"]);
+
+    expect(result.mapped).toEqual([{ id: "fdc_34845", name: "Cauliflower" }]);
+    expect(result.unmapped).toEqual(["moonrock"]);
+    // Static type guard: callers like the staging importers do `.id`, so
+    // the entry must be an object with a string `id`, not a bare string.
+    expect(typeof result.mapped[0]!.id).toBe("string");
+    expect(typeof result.mapped[0]!.name).toBe("string");
+  });
+
+  it("skips empty / whitespace-only input names without round-tripping", async () => {
+    const result = await mapIngredientNames(["", "   "]);
+    expect(result.mapped).toEqual([]);
+    expect(result.unmapped).toEqual([]);
+    expect(queryRowsMock).not.toHaveBeenCalled();
   });
 });
