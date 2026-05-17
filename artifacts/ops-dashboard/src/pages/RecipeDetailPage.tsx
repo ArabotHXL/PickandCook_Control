@@ -495,6 +495,60 @@ export function RecipeDetailPage() {
 
           <section className="bg-card border border-card-border rounded-lg p-5 shadow-sm space-y-3">
             <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold">Quality issues</h2>
+              {(merged.qualityIssues ?? []).length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => set("qualityIssues", [])}
+                  className="text-xs text-muted-foreground hover:text-foreground underline"
+                  data-testid="button-clear-quality-issues"
+                >
+                  Clear all
+                </button>
+              )}
+            </div>
+            {(merged.qualityIssues ?? []).length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                No outstanding quality issues. Approve is unblocked on this dimension.
+              </p>
+            ) : (
+              <>
+                <p className="text-xs text-muted-foreground">
+                  Issues are detected at import time and may be stale after edits. Remove any
+                  that no longer apply, then Save — Approve requires this list to be empty.
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {(merged.qualityIssues ?? []).map((issue, idx) => (
+                    <span
+                      key={`${issue}-${idx}`}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-amber-200 bg-amber-50 text-amber-900 text-xs"
+                      data-testid={`chip-quality-issue-${idx}`}
+                    >
+                      <span className="font-mono">{issue}</span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          set(
+                            "qualityIssues",
+                            (merged.qualityIssues ?? []).filter((_, i) => i !== idx),
+                          )
+                        }
+                        title="Remove this issue"
+                        aria-label={`Remove quality issue ${issue}`}
+                        className="text-amber-700 hover:text-amber-900"
+                        data-testid={`button-remove-quality-issue-${idx}`}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              </>
+            )}
+          </section>
+
+          <section className="bg-card border border-card-border rounded-lg p-5 shadow-sm space-y-3">
+            <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold">Ingredients & steps</h2>
               <button
                 type="button"
