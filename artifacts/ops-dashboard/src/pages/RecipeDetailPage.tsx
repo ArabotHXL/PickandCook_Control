@@ -8,6 +8,7 @@ import { ArrowLeft, Upload, RotateCcw, Save, CheckCircle2, ArrowUp, ArrowDown, T
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { isProdOriginRecipe } from "@/lib/recipeOrigin";
+import { mergeExtractPicks } from "@/lib/extractMerge";
 
 interface RecipeDto {
   id: string;
@@ -180,19 +181,15 @@ export function RecipeDetailPage() {
   });
 
   function applyExtract(picks: { required: string[]; optional: string[] }) {
-    // Additive merge — preserve any existing IDs in the draft/persisted row.
-    const currentReq = merged.requiredIngredientIds ?? [];
-    const currentOpt = merged.optionalIngredientIds ?? [];
-    const mergedReq = Array.from(new Set([...currentReq, ...picks.required]));
-    const requiredSet = new Set(mergedReq);
-    // Optional must never duplicate required even after the operator's edits.
-    const mergedOpt = Array.from(
-      new Set([...currentOpt, ...picks.optional].filter((id) => !requiredSet.has(id)))
+    const { mergedRequired, mergedOptional } = mergeExtractPicks(
+      merged.requiredIngredientIds ?? [],
+      merged.optionalIngredientIds ?? [],
+      picks
     );
     setDraft((d) => ({
       ...d,
-      requiredIngredientIds: mergedReq,
-      optionalIngredientIds: mergedOpt,
+      requiredIngredientIds: mergedRequired,
+      optionalIngredientIds: mergedOptional,
     }));
     setExtractPreview(null);
     toast({
