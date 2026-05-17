@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/query-client";
 import { uploadImageFile, resolveImageSrc } from "@/lib/upload";
 import { PageHeader } from "@/components/ui/page-header";
-import { ArrowLeft, Upload, RotateCcw, Save, CheckCircle2, ArrowUp, ArrowDown, Trash2, Plus } from "lucide-react";
+import { ArrowLeft, Upload, RotateCcw, Save, CheckCircle2, ArrowUp, ArrowDown, Trash2, Plus, Wand2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { isProdOriginRecipe } from "@/lib/recipeOrigin";
@@ -61,6 +61,11 @@ export function RecipeDetailPage() {
   const [draft, setDraft] = useState<Partial<RecipeDto>>({});
   const [note, setNote] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [extractPreview, setExtractPreview] = useState<{
+    newRequired: string[];
+    newOptional: string[];
+    unmapped: string[];
+  } | null>(null);
 
   const detailQuery = useQuery({
     queryKey: ["ops", "recipe-detail", recipeId],
@@ -148,6 +153,53 @@ export function RecipeDetailPage() {
     onError: (err: Error) =>
       toast({ title: "Approve failed", description: err.message, variant: "destructive" }),
   });
+
+  const extractMutation = useMutation({
+    mutationFn: async () => {
+      const r = await apiFetch(`/api/ops/recipes/${recipeId}/extract-ingredients`, {
+        method: "POST",
+        body: JSON.stringify({
+          instructionsSummary: merged.instructionsSummary ?? "",
+          instructionsSteps: merged.instructionsSteps ?? [],
+          requiredIngredientIds: merged.requiredIngredientIds ?? [],
+          optionalIngredientIds: merged.optionalIngredientIds ?? [],
+        }),
+      });
+      if (!r.ok) throw new Error((await r.json()).error ?? "Extract failed");
+      return (await r.json()) as {
+        newRequired: string[];
+        newOptional: string[];
+        unmapped: string[];
+      };
+    },
+    onSuccess: (data) => {
+      setExtractPreview(data);
+    },
+    onError: (err: Error) =>
+      toast({ title: "Auto-extract failed", description: err.message, variant: "destructive" }),
+  });
+
+  function applyExtract(picks: { required: string[]; optional: string[] }) {
+    // Additive merge — preserve any existing IDs in the draft/persisted row.
+    const currentReq = merged.requiredIngredientIds ?? [];
+    const currentOpt = merged.optionalIngredientIds ?? [];
+    const mergedReq = Array.from(new Set([...currentReq, ...picks.required]));
+    const requiredSet = new Set(mergedReq);
+    // Optional must never duplicate required even after the operator's edits.
+    const mergedOpt = Array.from(
+      new Set([...currentOpt, ...picks.optional].filter((id) => !requiredSet.has(id)))
+    );
+    setDraft((d) => ({
+      ...d,
+      requiredIngredientIds: mergedReq,
+      optionalIngredientIds: mergedOpt,
+    }));
+    setExtractPreview(null);
+    toast({
+      title: "Ingredients added",
+      description: `+${picks.required.length} required, +${picks.optional.length} optional. Click Save to persist.`,
+    });
+  }
 
   const restoreMutation = useMutation({
     mutationFn: (revisionId: string) =>
@@ -437,7 +489,20 @@ export function RecipeDetailPage() {
           </section>
 
           <section className="bg-card border border-card-border rounded-lg p-5 shadow-sm space-y-3">
-            <h2 className="text-sm font-semibold">Ingredients & steps</h2>
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold">Ingredients & steps</h2>
+              <button
+                type="button"
+                onClick={() => extractMutation.mutate()}
+                disabled={extractMutation.isPending}
+                title="Scan the Instructions summary + steps and propose matching ingredient IDs. Additive only — nothing is removed."
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded border border-input bg-background text-xs hover:bg-muted disabled:opacity-40"
+                data-testid="button-extract-ingredients"
+              >
+                <Wand2 className="w-3 h-3" />
+                {extractMutation.isPending ? "Scanning…" : "Auto-extract from instructions"}
+              </button>
+            </div>
             <Field label="Required ingredient IDs (comma-separated)">
               <textarea
                 value={listToText(merged.requiredIngredientIds ?? [])}
@@ -554,6 +619,191 @@ export function RecipeDetailPage() {
           </div>
         </aside>
       </div>
+
+      {extractPreview && (
+        <ExtractIngredientsModal
+          preview={extractPreview}
+          onClose={() => setExtractPreview(null)}
+          onApply={applyExtract}
+        />
+      )}
+    </div>
+  );
+}
+
+function ExtractIngredientsModal({
+  preview,
+  onClose,
+  onApply,
+}: {
+  preview: { newRequired: string[]; newOptional: string[]; unmapped: string[] };
+  onClose: () => void;
+  onApply: (picks: { required: string[]; optional: string[] }) => void;
+}) {
+  // Default everything to checked — the operator is reviewing, not curating
+  // from scratch. They can untick obviously-wrong matches.
+  const [pickedReq, setPickedReq] = useState<Set<string>>(
+    () => new Set(preview.newRequired)
+  );
+  const [pickedOpt, setPickedOpt] = useState<Set<string>>(
+    () => new Set(preview.newOptional)
+  );
+
+  function toggle(set: Set<string>, setSet: (s: Set<string>) => void, id: string) {
+    const next = new Set(set);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSet(next);
+  }
+
+  const nothingNew =
+    preview.newRequired.length === 0 && preview.newOptional.length === 0;
+  const totalPicked = pickedReq.size + pickedOpt.size;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
+      onClick={onClose}
+      data-testid="modal-extract-ingredients"
+    >
+      <div
+        className="bg-card border border-card-border rounded-lg shadow-xl w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 py-3 border-b border-border">
+          <h3 className="text-sm font-semibold">Auto-extract from instructions</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1 rounded hover:bg-muted"
+            data-testid="button-extract-close"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4 text-sm">
+          {nothingNew ? (
+            <p className="text-muted-foreground italic" data-testid="extract-empty-state">
+              Nothing new to add. Every ingredient mentioned in the instructions is
+              already in this recipe's Required or Optional list
+              {preview.unmapped.length > 0
+                ? ", and the unmatched candidates below didn't resolve to any product."
+                : "."}
+            </p>
+          ) : (
+            <>
+              <p className="text-xs text-muted-foreground">
+                Review and uncheck anything that looks wrong. Confirming will add the
+                checked IDs to your draft — you still need to click <strong>Save</strong>{" "}
+                afterward to persist. Existing IDs are never removed.
+              </p>
+
+              <PickList
+                title="New required ingredients"
+                ids={preview.newRequired}
+                picked={pickedReq}
+                onToggle={(id) => toggle(pickedReq, setPickedReq, id)}
+                testidPrefix="extract-required"
+              />
+              <PickList
+                title="New optional ingredients"
+                hint="Detected near garnish / to taste / for serving / optional wording."
+                ids={preview.newOptional}
+                picked={pickedOpt}
+                onToggle={(id) => toggle(pickedOpt, setPickedOpt, id)}
+                testidPrefix="extract-optional"
+              />
+            </>
+          )}
+
+          {preview.unmapped.length > 0 && (
+            <div>
+              <h4 className="text-xs font-semibold mb-1">
+                Unmatched candidates ({preview.unmapped.length})
+              </h4>
+              <p className="text-xs text-muted-foreground mb-1.5">
+                These showed up in the text but didn't match any product in the catalog.
+                Consider adding them as products if they're real ingredients.
+              </p>
+              <ul className="text-xs font-mono text-muted-foreground space-y-0.5">
+                {preview.unmapped.map((name) => (
+                  <li key={name} data-testid={`extract-unmapped-${name}`}>
+                    · {name}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-3 py-1.5 rounded-md border border-input bg-background text-sm hover:bg-muted"
+            data-testid="button-extract-cancel"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={nothingNew || totalPicked === 0}
+            onClick={() =>
+              onApply({
+                required: Array.from(pickedReq),
+                optional: Array.from(pickedOpt),
+              })
+            }
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-40"
+            data-testid="button-extract-confirm"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Add {totalPicked > 0 ? `${totalPicked} ` : ""}to draft
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PickList({
+  title,
+  hint,
+  ids,
+  picked,
+  onToggle,
+  testidPrefix,
+}: {
+  title: string;
+  hint?: string;
+  ids: string[];
+  picked: Set<string>;
+  onToggle: (id: string) => void;
+  testidPrefix: string;
+}) {
+  if (ids.length === 0) return null;
+  return (
+    <div>
+      <h4 className="text-xs font-semibold mb-1">
+        {title} ({ids.length})
+      </h4>
+      {hint && <p className="text-xs text-muted-foreground mb-1.5">{hint}</p>}
+      <ul className="space-y-1">
+        {ids.map((id) => (
+          <li key={id}>
+            <label className="flex items-center gap-2 text-xs font-mono cursor-pointer">
+              <input
+                type="checkbox"
+                checked={picked.has(id)}
+                onChange={() => onToggle(id)}
+                data-testid={`${testidPrefix}-${id}`}
+              />
+              <span>{id}</span>
+            </label>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

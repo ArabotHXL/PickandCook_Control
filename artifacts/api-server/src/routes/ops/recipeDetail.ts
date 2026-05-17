@@ -2,6 +2,10 @@ import type { Request, Response } from "express";
 import { query, queryOne, withTransaction } from "./db.js";
 import { writeAuditLog } from "./audit.js";
 import type { AdminPayload } from "./auth.js";
+import {
+  extractIngredientCandidates,
+  mapIngredientNames,
+} from "../../services/ingredientMapping.js";
 
 /** Marker the reverse-sync handler looks for in `ops_audit_log.decision_note`
  *  to set `forceOverrideOrigin: true` on outbound recipe push rows.
@@ -480,6 +484,125 @@ export async function approveRecipe(req: Request, res: Response): Promise<void> 
   });
 
   res.json({ ok: true, qualityTier: "acceptable" });
+}
+
+// ── Auto-extract ingredient IDs from instructions (task #32) ─────────────
+
+/** Cap on candidate phrases per request so a pathological "12 cups of x; 13
+ *  cups of y; ..." doesn't fan out into hundreds of mapper round-trips. */
+const MAX_EXTRACT_CANDIDATES = 80;
+
+/**
+ * Dry-run preview that scans `instructionsSummary` + `instructionsSteps`,
+ * runs each candidate phrase through `mapIngredientNames`, and returns the
+ * NEW ingredient IDs the operator could add to Required / Optional plus any
+ * candidate names that didn't match a product. **No DB writes** — this is
+ * read-tier; the operator confirms in the dashboard, the IDs land in the
+ * draft, and the existing `PATCH /api/ops/recipes/:id` flow is what writes
+ * the revision/audit.
+ *
+ * Body (all optional):
+ *  - `instructionsSummary?: string` — preview against an unsaved draft
+ *  - `instructionsSteps?: string[]` — preview against an unsaved draft
+ *  - `requiredIngredientIds?: string[]` — current draft list to subtract
+ *  - `optionalIngredientIds?: string[]` — current draft list to subtract
+ *
+ * When a field is omitted we fall back to the persisted recipe row so the
+ * operator can preview without first saving.
+ *
+ * Returns `{ newRequired, newOptional, unmapped }` — all string[].
+ */
+export async function extractRecipeIngredients(
+  req: Request,
+  res: Response
+): Promise<void> {
+  const { recipeId } = req.params;
+  const body = (req.body ?? {}) as Record<string, unknown>;
+
+  // Inbound size guards — without these the scanner/mapper would happily
+  // chew on megabytes of text. Real instructions are well under these caps.
+  const MAX_SUMMARY_CHARS = 20_000;
+  const MAX_STEPS = 200;
+  const MAX_STEP_CHARS = 5_000;
+
+  if (
+    typeof body.instructionsSummary === "string" &&
+    body.instructionsSummary.length > MAX_SUMMARY_CHARS
+  ) {
+    res.status(400).json({ error: "instructionsSummary is too large" });
+    return;
+  }
+  if (
+    Array.isArray(body.instructionsSteps) &&
+    (body.instructionsSteps.length > MAX_STEPS ||
+      body.instructionsSteps.some(
+        (s) => typeof s === "string" && s.length > MAX_STEP_CHARS
+      ))
+  ) {
+    res.status(400).json({ error: "instructionsSteps is too large" });
+    return;
+  }
+
+  const recipe = await queryOne<RecipeRow>(
+    `SELECT * FROM recipes WHERE id = $1`,
+    [recipeId]
+  );
+  if (!recipe) {
+    res.status(404).json({ error: "Recipe not found" });
+    return;
+  }
+
+  // Prefer caller-supplied draft values; fall back to the persisted row.
+  const summary =
+    typeof body.instructionsSummary === "string"
+      ? body.instructionsSummary
+      : (recipe.instructions_summary ?? "");
+  const steps = Array.isArray(body.instructionsSteps)
+    ? body.instructionsSteps.filter((s): s is string => typeof s === "string")
+    : Array.isArray(recipe.instructions_steps)
+      ? (recipe.instructions_steps as unknown[]).filter(
+          (s): s is string => typeof s === "string"
+        )
+      : [];
+  const existingRequired = Array.isArray(body.requiredIngredientIds)
+    ? body.requiredIngredientIds.filter((s): s is string => typeof s === "string")
+    : Array.isArray(recipe.required_ingredient_ids)
+      ? (recipe.required_ingredient_ids as unknown[]).filter(
+          (s): s is string => typeof s === "string"
+        )
+      : [];
+  const existingOptional = Array.isArray(body.optionalIngredientIds)
+    ? body.optionalIngredientIds.filter((s): s is string => typeof s === "string")
+    : Array.isArray(recipe.optional_ingredient_ids)
+      ? (recipe.optional_ingredient_ids as unknown[]).filter(
+          (s): s is string => typeof s === "string"
+        )
+      : [];
+
+  const candidates = extractIngredientCandidates(summary, steps).slice(
+    0,
+    MAX_EXTRACT_CANDIDATES
+  );
+
+  const requiredPhrases = candidates.filter((c) => !c.optional).map((c) => c.phrase);
+  const optionalPhrases = candidates.filter((c) => c.optional).map((c) => c.phrase);
+
+  const reqResult = await mapIngredientNames(requiredPhrases);
+  const optResult = await mapIngredientNames(optionalPhrases);
+
+  // Additive only: never propose IDs the recipe already has in either list.
+  const existingAll = new Set<string>([...existingRequired, ...existingOptional]);
+  const dedup = (xs: string[]): string[] => Array.from(new Set(xs));
+
+  const newRequired = dedup(reqResult.mapped).filter((id) => !existingAll.has(id));
+  const requiredSet = new Set(newRequired);
+  // Optional can't duplicate Required either — a measured mention wins.
+  const newOptional = dedup(optResult.mapped).filter(
+    (id) => !existingAll.has(id) && !requiredSet.has(id)
+  );
+  const unmapped = dedup([...reqResult.unmapped, ...optResult.unmapped]);
+
+  res.json({ newRequired, newOptional, unmapped });
 }
 
 // ── User-Created Recipe Detail ────────────────────────────────────────────

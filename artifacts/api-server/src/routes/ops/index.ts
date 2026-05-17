@@ -35,6 +35,7 @@ import {
   restoreRecipeRevision,
   getUserRecipeDetail,
   approveRecipe,
+  extractRecipeIngredients,
 } from "./recipeDetail.js";
 import { listDeadLetter, retryDeadLetter } from "./reverseSync.js";
 import { listModeration, decideModeration, bulkDecideModeration } from "./moderation.js";
@@ -143,6 +144,10 @@ export function registerOpsRoutes(app: Express): void {
   app.patch("/api/ops/recipes/:recipeId", requireAdminWrite, updateRecipe);
   app.patch("/api/ops/recipes/:recipeId/quality", requireAdminWrite, setRecipeQuality);
   app.post("/api/ops/recipes/:recipeId/approve", requireAdminWrite, approveRecipe);
+  // Auto-extract is a dry-run preview (no DB writes), so it's read-tier:
+  // the operator confirms in the dashboard, the IDs land in the draft, and
+  // the existing PATCH route persists them through the normal audit flow.
+  app.post("/api/ops/recipes/:recipeId/extract-ingredients", requireAdmin, extractRecipeIngredients);
 
   // ── Moderation ────────────────────────────────────────────────────────────
   app.get("/api/ops/moderation", requireAdmin, listModeration);
