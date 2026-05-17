@@ -405,7 +405,10 @@ export async function restoreRecipeRevision(req: Request, res: Response): Promis
  *
  * Side effects (one transaction):
  *  1. Snapshot a `recipe_revisions` row tagged "pre-approve".
- *  2. UPDATE recipes SET quality_tier='acceptable', quality_issues='[]'.
+ *  2. UPDATE recipes SET quality_tier='good', quality_issues='[]'.
+ *     (Prod's public read gate only serves quality_tier='good'; 'acceptable'
+ *     is rejected with reason: quality_tier, so the approved row would never
+ *     show up in the Pick & Cook app.)
  *  3. Write two `ops_audit_log` rows (update_recipe + set_recipe_quality)
  *     with `decision_note` containing the `[approve-flow]` marker so the
  *     reverse-sync worker routes both via the forceOverrideOrigin path.
@@ -454,7 +457,7 @@ export async function approveRecipe(req: Request, res: Response): Promise<void> 
   await withTransaction(async (tx) => {
     await tx.query(
       `UPDATE recipes
-          SET quality_tier = 'acceptable',
+          SET quality_tier = 'good',
               quality_issues = '[]'::jsonb
         WHERE id = $1`,
       [recipeId]
@@ -477,13 +480,13 @@ export async function approveRecipe(req: Request, res: Response): Promise<void> 
         admin.userId,
         recipeId,
         JSON.stringify({ qualityTier: previousTier }),
-        JSON.stringify({ qualityTier: "acceptable" }),
+        JSON.stringify({ qualityTier: "good" }),
         decisionNote,
       ]
     );
   });
 
-  res.json({ ok: true, qualityTier: "acceptable" });
+  res.json({ ok: true, qualityTier: "good" });
 }
 
 // ── Auto-extract ingredient IDs from instructions (task #32) ─────────────

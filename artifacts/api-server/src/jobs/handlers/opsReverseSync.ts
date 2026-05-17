@@ -308,6 +308,7 @@ export interface RecipeRow {
   nutrition_summary: unknown;
   instructions_summary: string | null;
   quality_tier: string | null;
+  quality_issues: unknown;
   image_url: string | null;
   updated_at: string | null;
 }
@@ -324,6 +325,7 @@ export interface RecipePayload {
   nutritionSummary?: unknown;
   instructionsSummary?: string;
   qualityTier?: string;
+  qualityIssues?: unknown;
   imageUrl?: string;
   controlUpdatedAt?: string;
   /** Set to true when the originating audit row carried the
@@ -355,6 +357,11 @@ export function mapRecipeRow(row: RecipeRow): RecipePayload {
   if (row.nutrition_summary && typeof row.nutrition_summary === "object") out.nutritionSummary = row.nutrition_summary;
   if (row.instructions_summary) out.instructionsSummary = row.instructions_summary;
   if (row.quality_tier && row.quality_tier !== "unrated") out.qualityTier = row.quality_tier;
+  // Always ship quality_issues — including the empty array — so prod can
+  // clear stale markers. Without this the prod row's quality_issues stays
+  // frozen at import time and the public read gate keeps rejecting the
+  // recipe even after Approve writes good on Control.
+  if (Array.isArray(row.quality_issues)) out.qualityIssues = row.quality_issues;
   if (row.image_url) out.imageUrl = row.image_url;
   if (row.updated_at) out.controlUpdatedAt = new Date(row.updated_at).toISOString();
   return out;
@@ -570,6 +577,7 @@ export async function loadRecipesBatch(cursor: CursorPos, limit = BATCH_SIZE): P
     `SELECT r.id, r.title, r.cuisine_tags, r.moods, r.constraints,
             r.estimated_time_min, r.default_servings, r.difficulty,
             r.nutrition_summary, r.instructions_summary, r.quality_tier,
+            r.quality_issues,
             r.image_url, r.updated_at::text AS updated_at
        FROM recipes r
       WHERE r.id = ANY($1::varchar[])`,
@@ -1227,6 +1235,7 @@ export async function retryDeadLetterById(
       `SELECT r.id, r.title, r.cuisine_tags, r.moods, r.constraints,
               r.estimated_time_min, r.default_servings, r.difficulty,
               r.nutrition_summary, r.instructions_summary, r.quality_tier,
+              r.quality_issues,
               r.image_url, r.updated_at::text AS updated_at
          FROM recipes r WHERE r.id = $1`,
       [dl.target_id]

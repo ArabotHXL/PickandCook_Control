@@ -150,8 +150,8 @@ export function RecipeDetailPage() {
       toast({
         title: "Approved",
         description: data.triggered
-          ? "Marked acceptable. Reverse-sync triggered — prod should update within ~30s."
-          : "Marked acceptable. Will be pushed to prod on the next reverse-sync run (≤15 min).",
+          ? "Approved (quality_tier=good). Reverse-sync triggered — prod should update within ~30s."
+          : "Approved (quality_tier=good). Will be pushed to prod on the next reverse-sync run (≤15 min).",
       });
       qc.invalidateQueries({ queryKey: ["ops", "recipe-detail", recipeId] });
       qc.invalidateQueries({ queryKey: ["ops", "recipe-revisions", recipeId] });
@@ -298,7 +298,10 @@ export function RecipeDetailPage() {
     approveBlockers.push("instructions summary ≥40 chars");
   if ((merged.qualityIssues ?? []).length > 0)
     approveBlockers.push(`clear ${merged.qualityIssues!.length} quality issue(s)`);
-  const alreadyAcceptable = (merged.qualityTier ?? "") === "acceptable";
+  // Approve writes quality_tier='good' (matching the value prod's public
+  // read gate accepts). The variable name is historical — "alreadyAcceptable"
+  // here means "already in the approved/served state on prod".
+  const alreadyAcceptable = (merged.qualityTier ?? "") === "good";
   const prodOrigin = isProdOriginRecipe({ id: recipe.id, sourceUrl: merged.sourceUrl ?? null });
 
   return (
@@ -318,7 +321,7 @@ export function RecipeDetailPage() {
             )}
             {alreadyAcceptable && (
               <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-100 text-emerald-700 border border-emerald-200">
-                acceptable
+                approved
               </span>
             )}
           </span>
@@ -900,7 +903,7 @@ function ApproveButton({
   onApprove: () => void;
 }) {
   // alreadyAcceptable is NOT a blocker — re-approving on a row that's
-  // already `acceptable` is the supported way to force a fresh push to
+  // already `good` is the supported way to force a fresh push to
   // prod (e.g. when an older audit row for the same recipe is stuck in
   // the dead-letter queue with `origin_locked` because it pre-dated the
   // approve flow). The /approve endpoint is idempotent: same UPDATE,
@@ -912,8 +915,8 @@ function ApproveButton({
       ? `Fix first: ${blockers.join("; ")}`
       : alreadyAcceptable
         ? prodOrigin
-          ? "Already acceptable. Click to re-push to prod (forces forceOverrideOrigin)."
-          : "Already acceptable. Click to re-push to prod via approve-flow."
+          ? "Already approved. Click to re-push to prod (forces forceOverrideOrigin)."
+          : "Already approved. Click to re-push to prod via approve-flow."
         : prodOrigin
           ? "This is a prod-origin recipe. Approving will overwrite it on prod."
           : "Approve this recipe for prod.";
@@ -929,7 +932,7 @@ function ApproveButton({
             : "Re-approve and push to prod again? This writes a fresh [approve-flow] audit so the next sync re-applies the row."
           : prodOrigin
             ? "Approve and overwrite the PROD row for this recipe? This sets forceOverrideOrigin on the next reverse-sync push."
-            : "Approve this recipe? It will be marked acceptable and pushed to prod on the next reverse-sync run.";
+            : "Approve this recipe? It will be marked approved (quality_tier=good) and pushed to prod on the next reverse-sync run.";
         if (confirm(msg)) onApprove();
       }}
       className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed"

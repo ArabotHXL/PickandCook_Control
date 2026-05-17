@@ -52,6 +52,7 @@ describe("mapRecipeRow", () => {
     default_servings: 4,
     difficulty: "Easy",
     nutrition_summary: { kcal: 200 },
+    quality_issues: [],
     instructions_summary: "Simmer tomatoes",
     quality_tier: "good",
     image_url: "https://example.com/img.jpg",
@@ -72,9 +73,24 @@ describe("mapRecipeRow", () => {
       nutritionSummary: { kcal: 200 },
       instructionsSummary: "Simmer tomatoes",
       qualityTier: "good",
+      qualityIssues: [],
       imageUrl: "https://example.com/img.jpg",
       controlUpdatedAt: "2026-05-11T00:00:00.000Z",
     });
+  });
+
+  it("ships an empty qualityIssues array so prod can clear stale markers", () => {
+    // Regression guard: previously mapRecipeRow omitted quality_issues
+    // entirely, so a Control-side Approve that cleared the array never
+    // propagated to prod. Prod's public read gate keeps rejecting the
+    // recipe (reason: quality_tier) until quality_issues is empty.
+    const p = mapRecipeRow({ ...baseRow, quality_issues: [] });
+    expect(p.qualityIssues).toEqual([]);
+  });
+
+  it("passes quality_issues through when non-empty", () => {
+    const p = mapRecipeRow({ ...baseRow, quality_issues: ["stub_instructions:209"] });
+    expect(p.qualityIssues).toEqual(["stub_instructions:209"]);
   });
 
   it("omits empty arrays and nullish scalars (so prod doesn't clear them)", () => {
@@ -310,7 +326,8 @@ describe("mapRecipeBatchItem (approve-flow → forceOverrideOrigin plumbing)", (
     difficulty: "Easy",
     nutrition_summary: null,
     instructions_summary: "Mix and serve.",
-    quality_tier: "acceptable",
+    quality_issues: [],
+    quality_tier: "good",
     image_url: "https://example.com/x.jpg",
     updated_at: "2026-05-15T00:00:00.000Z",
   };
@@ -324,7 +341,7 @@ describe("mapRecipeBatchItem (approve-flow → forceOverrideOrigin plumbing)", (
     const p = mapRecipeBatchItem(item);
     expect(p.forceOverrideOrigin).toBe(true);
     expect(p.id).toBe("rec_436");
-    expect(p.qualityTier).toBe("acceptable");
+    expect(p.qualityTier).toBe("good");
   });
 
   it("recognizes the marker when embedded inside a longer note", () => {
