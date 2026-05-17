@@ -275,4 +275,26 @@ describe("extract-ingredients route wiring", () => {
     expect(line!).toMatch(/\brequireAdmin\b/);
     expect(line!).not.toMatch(/\brequireAdminWrite\b/);
   });
+
+  it("rejects unauthenticated requests with 401 before invoking the handler", async () => {
+    // Exercise the same requireAdmin middleware the route is mounted with,
+    // confirming an end-to-end unauthenticated request never reaches
+    // extractRecipeIngredients (which would otherwise touch the DB mock).
+    const { requireAdmin } = await import("./auth.js");
+    queryOneMock.mockReset();
+    const req = {
+      headers: {},
+      cookies: {},
+      params: { recipeId: "rec_1" },
+      body: {},
+    } as unknown as Request;
+    const res = makeRes();
+    let nextCalled = false;
+    await requireAdmin(req, res, () => {
+      nextCalled = true;
+    });
+    expect(nextCalled).toBe(false);
+    expect(res._status).toBe(401);
+    expect(queryOneMock).not.toHaveBeenCalled();
+  });
 });
